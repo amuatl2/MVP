@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1079007645640",
+    "project_id": "home-mvp-f0aa5",
+    "storage_bucket": "home-mvp-f0aa5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1079007645640:android:17c2cb4d3a69ea45ba7afd",
+        "android_client_info": {
+          "package_name": "com.example.mvp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBXs2oHf8kuwUWdJmzOCwKPyYZN6WMQtOg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
