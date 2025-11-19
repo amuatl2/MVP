@@ -198,8 +198,7 @@ fun HomeApp() {
                 CreateTicketScreen(
                     onBack = { navController.popBackStack() },
                     onSubmit = { title, description, category, priority ->
-                        val now = java.time.LocalDateTime.now()
-                        val dateStr = now.format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+                        val dateStr = com.example.mvp.utils.DateUtils.getCurrentDateString()
                         val newTicket = Ticket(
                             id = "ticket-${System.currentTimeMillis()}",
                             title = title,
@@ -208,7 +207,7 @@ fun HomeApp() {
                             status = TicketStatus.SUBMITTED,
                             submittedBy = currentUser?.email ?: "",
                             aiDiagnosis = "AI Suggestion: $category - Auto-detected",
-                            createdAt = now.toString(),
+                            createdAt = com.example.mvp.utils.DateUtils.getCurrentDateTimeString(),
                             createdDate = dateStr,
                             priority = priority,
                             ticketNumber = "${System.currentTimeMillis() % 100000}"

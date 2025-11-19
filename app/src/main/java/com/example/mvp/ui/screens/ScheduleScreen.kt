@@ -7,8 +7,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,8 +18,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mvp.data.Ticket
 import com.example.mvp.data.TicketStatus
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import com.example.mvp.utils.DateUtils
+import java.util.Calendar
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,10 +30,10 @@ fun ScheduleScreen(
     onBack: () -> Unit,
     onConfirm: (String, String, String?) -> Unit
 ) {
-    var selectedDate by remember { mutableStateOf<LocalDate?>(LocalDate.of(2025, 11, 1)) }
+    var selectedDate by remember { mutableStateOf<Date?>(DateUtils.createDate(2025, 11, 1)) }
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var selectedTicket by remember { mutableStateOf<String?>(defaultTicketId) }
-    var currentMonth by remember { mutableStateOf(LocalDate.of(2025, 11, 1)) }
+    var currentMonth by remember { mutableStateOf(DateUtils.createDate(2025, 11, 1)) }
     var confirmed by remember { mutableStateOf(false) }
 
     val assignedTickets = tickets.filter { 
@@ -44,7 +45,7 @@ fun ScheduleScreen(
     if (confirmed && selectedDate != null && selectedTime != null) {
         SuccessScreen(
             message = "Schedule Confirmed!",
-            subtitle = "Appointment scheduled for ${selectedDate?.format(DateTimeFormatter.ofPattern("MM/dd/yyyy"))} at $selectedTime",
+            subtitle = "Appointment scheduled for ${DateUtils.formatDate(selectedDate!!, "MM/dd/yyyy")} at $selectedTime",
             onBack = onBack
         )
         return
@@ -56,7 +57,7 @@ fun ScheduleScreen(
                 title = { Text("Schedule Visit", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -124,19 +125,25 @@ fun ScheduleScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(onClick = { 
-                                currentMonth = currentMonth.minusMonths(1)
+                                val cal = java.util.Calendar.getInstance()
+                                cal.time = currentMonth
+                                currentMonth = DateUtils.subtractMonths(currentMonth, 1)
                             }) {
-                                Icon(Icons.Default.ArrowBack, contentDescription = "Previous Month")
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous Month")
                             }
                             Text(
-                                text = currentMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+                                text = remember(currentMonth) {
+                                    val cal = java.util.Calendar.getInstance()
+                                    cal.time = currentMonth
+                                    DateUtils.formatMonthYear(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1)
+                                },
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                             IconButton(onClick = { 
-                                currentMonth = currentMonth.plusMonths(1)
+                                currentMonth = DateUtils.addMonths(currentMonth, 1)
                             }) {
-                                Icon(Icons.Default.ArrowForward, contentDescription = "Next Month")
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Month")
                             }
                         }
 
@@ -160,9 +167,13 @@ fun ScheduleScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // Calendar Grid
-                        val firstDayOfMonth = currentMonth.withDayOfMonth(1)
-                        val daysInMonth = currentMonth.lengthOfMonth()
-                        val startOffset = firstDayOfMonth.dayOfWeek.value % 7 // Sunday = 0
+                        val cal = java.util.Calendar.getInstance()
+                        cal.time = currentMonth
+                        val year = cal.get(Calendar.YEAR)
+                        val month = cal.get(Calendar.MONTH) + 1
+                        val firstDayOfMonth = DateUtils.createDate(year, month, 1)
+                        val daysInMonth = DateUtils.getDaysInMonth(year, month)
+                        val startOffset = DateUtils.getDayOfWeek(year, month, 1) // Sunday = 0
                         
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(7),
@@ -175,8 +186,16 @@ fun ScheduleScreen(
                             
                             // Current month days
                             items(daysInMonth) { day ->
-                                val date = currentMonth.withDayOfMonth(day + 1)
-                                val isSelected = selectedDate == date
+                                val date = DateUtils.createDate(year, month, day + 1)
+                                val isSelected = selectedDate?.let { 
+                                    val cal1 = java.util.Calendar.getInstance()
+                                    val cal2 = java.util.Calendar.getInstance()
+                                    cal1.time = it
+                                    cal2.time = date
+                                    cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
+                                    cal1.get(Calendar.MONTH) == cal2.get(Calendar.MONTH) &&
+                                    cal1.get(Calendar.DAY_OF_MONTH) == cal2.get(Calendar.DAY_OF_MONTH)
+                                } ?: false
                                 
                                 Box(
                                     modifier = Modifier
@@ -380,7 +399,7 @@ fun ScheduleScreen(
                                 if (selectedDate != null && selectedTime != null) {
                                     confirmed = true
                                     onConfirm(
-                                        selectedDate!!.format(DateTimeFormatter.ofPattern("yyyy-MM-dd")),
+                                        DateUtils.formatDate(selectedDate!!, "yyyy-MM-dd"),
                                         selectedTime!!,
                                         selectedTicket
                                     )

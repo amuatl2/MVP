@@ -381,7 +381,7 @@ fun TicketDetailScreen(
                                             text = newMessage,
                                             senderEmail = currentUserEmail,
                                             senderName = currentUserName ?: "User",
-                                            timestamp = java.time.LocalDateTime.now().toString()
+                                            timestamp = com.example.mvp.utils.DateUtils.getCurrentDateTimeString()
                                         )
                                         onAddMessage(message)
                                         newMessage = ""

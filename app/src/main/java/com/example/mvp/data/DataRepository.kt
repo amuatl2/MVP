@@ -8,9 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "app_data")
 
@@ -72,6 +70,7 @@ class DataRepository(private val context: Context) {
     }
     
     // Get tickets for a specific user
+    @Suppress("UNUSED")
     suspend fun getTickets(userEmail: String): List<Ticket> {
         val ticketsJson = context.dataStore.data.first()[ticketsKey(userEmail)] ?: return emptyList()
         return try {
@@ -90,6 +89,7 @@ class DataRepository(private val context: Context) {
     }
     
     // Get jobs for a specific user (contractor)
+    @Suppress("UNUSED")
     suspend fun getJobs(userEmail: String): List<Job> {
         val jobsJson = context.dataStore.data.first()[jobsKey(userEmail)] ?: return emptyList()
         return try {
@@ -145,6 +145,7 @@ class DataRepository(private val context: Context) {
     }
     
     // Clear user data (on logout)
+    @Suppress("UNUSED")
     suspend fun clearUserData(userEmail: String) {
         context.dataStore.edit { preferences ->
             preferences.remove(ticketsKey(userEmail))

@@ -22,8 +22,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Check if Firebase is initialized by trying to get Firestore instance
         useFirebase = try {
-            val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-            db != null
+            com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            true
         } catch (e: Exception) {
             false
         }
@@ -379,7 +379,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         contractorId = contractorId,
                         propertyAddress = "123 Main St, Apt 4B",
                         issueType = ticket.category,
-                        date = java.time.LocalDate.now().toString(),
+                        date = com.example.mvp.utils.DateUtils.getCurrentDateString(),
                         status = "assigned"
                     )
                     if (useFirebase) {
@@ -418,7 +418,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     // Update ticket status - this will save all tickets
                     updateTicket(
                         ticket.id,
-                        ticket.copy(status = TicketStatus.COMPLETED, completedDate = java.time.LocalDate.now().toString())
+                        ticket.copy(status = TicketStatus.COMPLETED, completedDate = com.example.mvp.utils.DateUtils.getCurrentDateString())
                     )
                 }
             }
