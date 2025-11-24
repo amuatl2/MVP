@@ -3,7 +3,11 @@ package com.example.mvp.data
 data class User(
     val email: String,
     val role: UserRole,
-    val name: String
+    val name: String,
+    val address: String? = null,
+    val city: String? = null,
+    val state: String? = null,
+    val companyName: String? = null // For contractors
 )
 
 enum class UserRole {
@@ -25,6 +29,7 @@ data class Ticket(
     val category: String,
     val status: TicketStatus,
     val submittedBy: String,
+    val submittedByRole: UserRole,
     val assignedTo: String? = null,
     val aiDiagnosis: String? = null,
     val photos: List<String> = emptyList(),
@@ -51,7 +56,10 @@ data class Contractor(
     val rating: Float,
     val distance: Float,
     val preferred: Boolean,
-    val completedJobs: Int
+    val completedJobs: Int,
+    val email: String? = null,
+    val city: String? = null,
+    val state: String? = null
 )
 
 data class Job(
@@ -65,5 +73,56 @@ data class Job(
     val cost: Int? = null,
     val duration: Int? = null,
     val rating: Float? = null
+)
+
+data class JobApplication(
+    val id: String,
+    val ticketId: String,
+    val contractorId: String,
+    val contractorName: String,
+    val contractorEmail: String,
+    val appliedAt: String,
+    val status: ApplicationStatus = ApplicationStatus.PENDING
+)
+
+enum class ApplicationStatus {
+    PENDING, ACCEPTED, REJECTED
+}
+
+data class LandlordTenantConnection(
+    val id: String,
+    val landlordEmail: String,
+    val tenantEmail: String,
+    val status: ConnectionStatus,
+    val requestedBy: String, // Email of who requested
+    val requestedAt: String,
+    val confirmedAt: String? = null
+)
+
+enum class ConnectionStatus {
+    PENDING, // Tenant needs to confirm
+    CONNECTED, // Both parties confirmed
+    REJECTED // Tenant rejected
+}
+
+data class DirectMessage(
+    val id: String,
+    val landlordEmail: String,
+    val tenantEmail: String,
+    val senderEmail: String,
+    val senderName: String,
+    val text: String,
+    val timestamp: String
+)
+
+data class ContractorLandlordMessage(
+    val id: String,
+    val ticketId: String,
+    val contractorEmail: String,
+    val landlordEmail: String,
+    val senderEmail: String,
+    val senderName: String,
+    val text: String,
+    val timestamp: String
 )
 

@@ -9,6 +9,7 @@ object MockData {
             category = "Plumbing",
             status = TicketStatus.SUBMITTED,
             submittedBy = "tenant@home.com",
+            submittedByRole = UserRole.TENANT,
             assignedTo = null,
             aiDiagnosis = "Plumbing - Likely requires washer replacement",
             createdAt = "2024-11-01T11:02:17Z",
@@ -22,6 +23,7 @@ object MockData {
             category = "Electrical",
             status = TicketStatus.SUBMITTED,
             submittedBy = "tenant@example.com",
+            submittedByRole = UserRole.TENANT,
             aiDiagnosis = "Electrical - Switch Replacement",
             createdAt = "2024-01-16T14:30:00Z",
             priority = "Medium"

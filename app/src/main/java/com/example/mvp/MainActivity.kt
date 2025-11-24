@@ -9,10 +9,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
+import com.example.mvp.data.FirebaseRepository
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -24,6 +30,8 @@ import com.example.mvp.navigation.Screen
 import com.example.mvp.ui.components.HomeBottomNavigation
 import com.example.mvp.ui.components.TopNavigationBar
 import com.example.mvp.ui.screens.*
+import com.example.mvp.ui.screens.ContractorLandlordChatScreen
+import com.example.mvp.ui.screens.ContractorLandlordConversationScreen
 import com.example.mvp.ui.theme.MVPTheme
 import com.example.mvp.viewmodel.HomeViewModel
 
@@ -52,9 +60,14 @@ fun HomeApp() {
 
     val currentUser by viewModel.currentUser.collectAsState()
     val tickets by viewModel.tickets.collectAsState()
+    val allTickets by viewModel.allTickets.collectAsState()
     val contractors by viewModel.contractors.collectAsState()
     val jobs by viewModel.jobs.collectAsState()
+    val connections by viewModel.connections.collectAsState()
+    val directMessages by viewModel.directMessages.collectAsState()
     val authErrorState by viewModel.authError.collectAsState()
+    
+    var selectedTenantEmail by remember { mutableStateOf<String?>(null) }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -70,13 +83,20 @@ fun HomeApp() {
                             "dashboard" -> navController.navigate(Screen.Dashboard.route) {
                                 popUpTo(Screen.Dashboard.route) { inclusive = true }
                             }
-                            "create_ticket" -> navController.navigate(Screen.CreateTicket.route)
+                            "create_ticket" -> {
+                                // Only allow tenants to create tickets
+                                if (currentUser?.role == UserRole.TENANT) {
+                                    navController.navigate(Screen.CreateTicket.route)
+                                }
+                            }
                             "marketplace" -> navController.navigate(Screen.Marketplace.createRoute(null))
                             "ai_diagnosis" -> navController.navigate(Screen.AIDiagnosis.route)
                             "contractor_dashboard" -> navController.navigate(Screen.ContractorDashboard.route)
                             "schedule" -> navController.navigate(Screen.Schedule.createRoute(null))
                             "history" -> navController.navigate(Screen.History.route)
                             "chat" -> navController.navigate(Screen.Chat.route)
+                            "tenant_landlord" -> navController.navigate(Screen.TenantLandlord.route)
+                            "landlord_tenants" -> navController.navigate(Screen.LandlordTenants.route)
                             "rating" -> {
                                 val completedJob = jobs.find { it.status == "completed" }
                                 if (completedJob != null) {
@@ -106,12 +126,19 @@ fun HomeApp() {
                             "dashboard" -> navController.navigate(Screen.Dashboard.route) {
                                 popUpTo(Screen.Dashboard.route) { inclusive = true }
                             }
-                            "create_ticket" -> navController.navigate(Screen.CreateTicket.route)
+                            "create_ticket" -> {
+                                // Only allow tenants to create tickets
+                                if (currentUser?.role == UserRole.TENANT) {
+                                    navController.navigate(Screen.CreateTicket.route)
+                                }
+                            }
                             "marketplace" -> navController.navigate(Screen.Marketplace.createRoute(null))
                             "contractor_dashboard" -> navController.navigate(Screen.ContractorDashboard.route)
                             "schedule" -> navController.navigate(Screen.Schedule.createRoute(null))
                             "history" -> navController.navigate(Screen.History.route)
                             "chat" -> navController.navigate(Screen.Chat.route)
+                            "tenant_landlord" -> navController.navigate(Screen.TenantLandlord.route)
+                            "landlord_tenants" -> navController.navigate(Screen.LandlordTenants.route)
                         }
                     }
                 )
@@ -154,8 +181,8 @@ fun HomeApp() {
                 
                 CreateAccountScreen(
                     onBack = { navController.popBackStack() },
-                    onCreateAccount = { name, email, password, role ->
-                        viewModel.createAccount(name, email, password, role)
+                    onCreateAccount = { name, email, password, role, address, city, state, companyName ->
+                        viewModel.createAccount(name, email, password, role, address, city, state, companyName)
                     },
                     authError = authErrorState
                 )
@@ -172,18 +199,39 @@ fun HomeApp() {
                             navController.navigate(Screen.TicketDetail.createRoute(ticketId))
                         }
                     )
-                    UserRole.LANDLORD -> LandlordDashboardScreen(
-                        tickets = tickets,
-                        onTicketClick = { ticketId ->
-                            navController.navigate(Screen.TicketDetail.createRoute(ticketId))
-                        },
-                        onAIDiagnosis = {
-                            navController.navigate(Screen.AIDiagnosis.route)
-                        },
-                        onMarketplace = {
-                            navController.navigate(Screen.Marketplace.route)
+                    UserRole.LANDLORD -> {
+                        var tenantUsersMap by remember { mutableStateOf<Map<String, User>>(emptyMap()) }
+                        
+                        // Load tenant user info for all tickets
+                        LaunchedEffect(tickets) {
+                            val usersMap = mutableMapOf<String, User>()
+                            tickets.forEach { ticket ->
+                                if (ticket.submittedByRole == UserRole.TENANT && !usersMap.containsKey(ticket.submittedBy)) {
+                                    viewModel.getUserByEmail(ticket.submittedBy)?.let {
+                                        usersMap[ticket.submittedBy] = it
+                                    }
+                                }
+                            }
+                            tenantUsersMap = usersMap
                         }
-                    )
+                        
+                        LandlordDashboardScreen(
+                            tickets = tickets,
+                            onTicketClick = { ticketId ->
+                                navController.navigate(Screen.TicketDetail.createRoute(ticketId))
+                            },
+                            onAIDiagnosis = {
+                                navController.navigate(Screen.AIDiagnosis.route)
+                            },
+                            onMarketplace = {
+                                navController.navigate(Screen.Marketplace.route)
+                            },
+                            onChatWithContractor = { ticketId ->
+                                navController.navigate("contractor_landlord_chat/$ticketId")
+                            },
+                            tenantUsers = tenantUsersMap
+                        )
+                    }
                     UserRole.CONTRACTOR -> ContractorDashboardScreen(
                         jobs = jobs,
                         onJobClick = { jobId ->
@@ -195,26 +243,37 @@ fun HomeApp() {
             }
 
             composable(Screen.CreateTicket.route) {
-                CreateTicketScreen(
-                    onBack = { navController.popBackStack() },
-                    onSubmit = { title, description, category, priority ->
-                        val dateStr = com.example.mvp.utils.DateUtils.getCurrentDateString()
-                        val newTicket = Ticket(
-                            id = "ticket-${System.currentTimeMillis()}",
-                            title = title,
-                            description = description,
-                            category = category,
-                            status = TicketStatus.SUBMITTED,
-                            submittedBy = currentUser?.email ?: "",
-                            aiDiagnosis = "AI Suggestion: $category - Auto-detected",
-                            createdAt = com.example.mvp.utils.DateUtils.getCurrentDateTimeString(),
-                            createdDate = dateStr,
-                            priority = priority,
-                            ticketNumber = "${System.currentTimeMillis() % 100000}"
-                        )
-                        viewModel.addTicket(newTicket)
+                // Only tenants can create tickets
+                if (currentUser?.role == UserRole.TENANT) {
+                    CreateTicketScreen(
+                        onBack = { navController.popBackStack() },
+                        onSubmit = { title, description, category, priority ->
+                            val dateStr = com.example.mvp.utils.DateUtils.getCurrentDateString()
+                            val newTicket = Ticket(
+                                id = "ticket-${System.currentTimeMillis()}",
+                                title = title,
+                                description = description,
+                                category = category,
+                                status = TicketStatus.SUBMITTED,
+                                submittedBy = currentUser?.email ?: "",
+                                submittedByRole = currentUser?.role ?: UserRole.TENANT,
+                                aiDiagnosis = "AI Suggestion: $category - Auto-detected",
+                                createdAt = com.example.mvp.utils.DateUtils.getCurrentDateTimeString(),
+                                createdDate = dateStr,
+                                priority = priority,
+                                ticketNumber = "${System.currentTimeMillis() % 100000}"
+                            )
+                            viewModel.addTicket(newTicket)
+                        }
+                    )
+                } else {
+                    // Redirect non-tenants to dashboard
+                    LaunchedEffect(Unit) {
+                        navController.navigate(Screen.Dashboard.route) {
+                            popUpTo(Screen.Dashboard.route) { inclusive = true }
+                        }
                     }
-                )
+                }
             }
 
             composable(
@@ -226,8 +285,27 @@ fun HomeApp() {
                 val contractor = ticket?.assignedTo?.let { 
                     contractors.find { c -> c.id == it }
                 }
+                var tenantUser by remember { mutableStateOf<User?>(null) }
+
+                // Load tenant user info if ticket was submitted by a tenant
+                LaunchedEffect(ticket?.submittedBy) {
+                    if (ticket?.submittedByRole == UserRole.TENANT) {
+                        ticket.submittedBy.let { tenantEmail ->
+                            viewModel.getUserByEmail(tenantEmail)?.let {
+                                tenantUser = it
+                            }
+                        }
+                    }
+                }
 
                 if (ticket != null) {
+                    // Find the job for this ticket to get rating info
+                    val job = jobs.find { it.ticketId == ticketId }
+                    val canRate = ticket.status == TicketStatus.COMPLETED && 
+                                  ticket.rating == null && 
+                                  ticket.assignedTo != null &&
+                                  (currentUser?.role == UserRole.TENANT || currentUser?.role == UserRole.LANDLORD)
+                    
                     TicketDetailScreen(
                         ticket = ticket,
                         contractor = contractor,
@@ -238,12 +316,15 @@ fun HomeApp() {
                         onScheduleVisit = {
                             navController.navigate(Screen.Schedule.createRoute(ticketId))
                         },
+                        onRateJob = if (canRate && job != null) {
+                            {
+                                navController.navigate(Screen.Rating.createRoute(job.id))
+                            }
+                        } else null,
                         userRole = currentUser?.role ?: UserRole.TENANT,
                         currentUserEmail = currentUser?.email,
                         currentUserName = currentUser?.name,
-                        onAddMessage = { message ->
-                            viewModel.addMessageToTicket(ticketId, message)
-                        }
+                        tenantUser = tenantUser
                     )
                 }
             }
@@ -253,9 +334,52 @@ fun HomeApp() {
                 arguments = listOf(navArgument("ticketId") { type = NavType.StringType; nullable = true })
             ) { backStackEntry ->
                 val ticketId = backStackEntry.arguments?.getString("ticketId")?.takeIf { it != "null" }
+                val applications by viewModel.jobApplications.collectAsState()
+                val ticketApplications = ticketId?.let { 
+                    applications.filter { it.ticketId == ticketId } 
+                } ?: emptyList()
+                
+                val ticket = ticketId?.let { allTickets.find { it.id == ticketId } }
+                var tenantUser by remember { mutableStateOf<User?>(null) }
+                var contractorUsersMap by remember { mutableStateOf<Map<String, User>>(emptyMap()) }
+                
+                LaunchedEffect(ticketId) {
+                    ticketId?.let {
+                        viewModel.startObservingJobApplications(it)
+                    }
+                }
+                
+                // Load tenant user info
+                LaunchedEffect(ticket?.submittedBy) {
+                    ticket?.submittedBy?.let { tenantEmail ->
+                        viewModel.getUserByEmail(tenantEmail)?.let {
+                            tenantUser = it
+                        }
+                    }
+                }
+                
+                // Load contractor user info
+                LaunchedEffect(contractors) {
+                    val usersMap = mutableMapOf<String, User>()
+                    contractors.forEach { contractor ->
+                        contractor.email?.let { email ->
+                            viewModel.getUserByEmail(email)?.let { user ->
+                                usersMap[contractor.id] = user
+                            }
+                        }
+                    }
+                    contractorUsersMap = usersMap
+                }
+                
                 MarketplaceScreen(
                     contractors = contractors,
-                    tickets = tickets,
+                    tickets = if (currentUser?.role == UserRole.CONTRACTOR) {
+                        // Contractors need to see all unassigned tickets in marketplace
+                        allTickets
+                    } else {
+                        // Other users see only their own tickets
+                        tickets
+                    },
                     onContractorClick = { contractorId ->
                         navController.navigate(Screen.ContractorProfile.createRoute(contractorId))
                     },
@@ -266,15 +390,26 @@ fun HomeApp() {
                         }
                     },
                     onApplyToJob = { jobTicketId ->
-                        // For contractors applying to jobs - assign them to the ticket
-                        val contractorId = viewModel.getContractorIdForUser(currentUser)
-                        if (contractorId != null) {
-                            viewModel.assignContractor(jobTicketId, contractorId)
+                        // For contractors applying to jobs - create an application
+                        val user = currentUser
+                        val contractorId = viewModel.getContractorIdForUser(user)
+                        if (contractorId != null && user != null) {
+                            val contractor = contractors.find { it.id == contractorId }
+                            viewModel.applyToJob(
+                                jobTicketId, 
+                                contractorId,
+                                contractor?.name ?: user.name,
+                                user.email
+                            )
                             navController.popBackStack()
                         }
                     },
                     userRole = currentUser?.role ?: UserRole.TENANT,
-                    ticketId = ticketId
+                    ticketId = ticketId,
+                    applications = ticketApplications,
+                    tenantCity = tenantUser?.city,
+                    tenantState = tenantUser?.state,
+                    contractorUsers = contractorUsersMap
                 )
             }
 
@@ -307,13 +442,13 @@ fun HomeApp() {
             composable(Screen.ContractorDashboard.route) {
                 ContractorDashboardScreen(
                     jobs = jobs,
-                    tickets = tickets,
+                    tickets = allTickets, // Contractors need to see all tickets to find available jobs
                     onJobClick = { jobId ->
                         navController.navigate(Screen.JobDetail.createRoute(jobId))
                     },
                     onApplyToJob = { ticketId ->
-                        // Handle job application - could navigate to ticket detail or apply directly
-                        navController.navigate(Screen.TicketDetail.createRoute(ticketId))
+                        // Navigate to job detail screen for available jobs
+                        navController.navigate(Screen.JobDetailTicket.createRoute(ticketId))
                     }
                 )
             }
@@ -327,7 +462,7 @@ fun HomeApp() {
                 val ticket = job?.let { tickets.find { t -> t.id == it.ticketId } }
 
                 if (job != null && ticket != null) {
-                    JobDetailScreen(
+                    AssignedJobDetailScreen(
                         job = job,
                         ticket = ticket,
                         onBack = { navController.popBackStack() },
@@ -341,22 +476,69 @@ fun HomeApp() {
             }
 
             composable(
+                route = Screen.JobDetailTicket.route,
+                arguments = listOf(navArgument("ticketId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val ticketId = backStackEntry.arguments?.getString("ticketId") ?: ""
+                val ticket = allTickets.find { it.id == ticketId }
+                var isApplying by remember { mutableStateOf(false) }
+                val scope = rememberCoroutineScope()
+                
+                JobDetailScreen(
+                    ticket = ticket,
+                    onApply = {
+                        isApplying = true
+                        val user = currentUser
+                        val contractorId = viewModel.getContractorIdForUser(user)
+                        if (contractorId != null && ticket != null && user != null) {
+                            val contractor = contractors.find { it.id == contractorId }
+                            viewModel.applyToJob(
+                                ticket.id,
+                                contractorId,
+                                contractor?.name ?: user.name,
+                                user.email
+                            )
+                            // Wait a bit for the update to propagate
+                            scope.launch {
+                                kotlinx.coroutines.delay(500)
+                                isApplying = false
+                                navController.popBackStack()
+                            }
+                        } else {
+                            isApplying = false
+                        }
+                    },
+                    onBack = { navController.popBackStack() },
+                    isApplying = isApplying
+                )
+            }
+
+            composable(
                 route = Screen.Schedule.route,
                 arguments = listOf(navArgument("ticketId") { type = NavType.StringType; nullable = true })
             ) { backStackEntry ->
                 val routeTicketId = backStackEntry.arguments?.getString("ticketId")?.takeIf { it != "null" }
-                ScheduleScreen(
-                    tickets = tickets,
-                    defaultTicketId = routeTicketId,
-                    onBack = { navController.popBackStack() },
-                    onConfirm = { date, time, ticketId ->
-                        // Handle schedule confirmation - update ticket with scheduled date/time
-                        ticketId?.let { id ->
-                            viewModel.scheduleTicket(id, date, time)
+                // Show different schedule screen based on user role
+                if (currentUser?.role == UserRole.CONTRACTOR) {
+                    ContractorScheduleScreen(
+                        jobs = jobs,
+                        tickets = allTickets,
+                        onBack = { navController.popBackStack() }
+                    )
+                } else {
+                    ScheduleScreen(
+                        tickets = tickets,
+                        defaultTicketId = routeTicketId,
+                        onBack = { navController.popBackStack() },
+                        onConfirm = { date, time, ticketId ->
+                            // Handle schedule confirmation - update ticket with scheduled date/time
+                            ticketId?.let { id ->
+                                viewModel.scheduleTicket(id, date, time)
+                            }
+                            navController.popBackStack()
                         }
-                        navController.popBackStack()
-                    }
-                )
+                    )
+                }
             }
 
             composable(
@@ -369,13 +551,22 @@ fun HomeApp() {
                     contractors.find { c -> c.id == it.contractorId }
                 }
 
+                val ticket = job?.let { tickets.find { t -> t.id == it.ticketId } }
+                
                 RatingScreen(
                     contractor = contractor,
                     completedJobs = jobs.filter { it.status == "completed" },
                     recentRatings = emptyList(), // TODO: Load from data
                     onBack = { 
-                        navController.navigate(Screen.History.route) {
-                            popUpTo(Screen.Dashboard.route) { inclusive = false }
+                        // Navigate back to ticket detail if available, otherwise to dashboard
+                        ticket?.let {
+                            navController.navigate(Screen.TicketDetail.createRoute(it.id)) {
+                                popUpTo(Screen.TicketDetail.createRoute(it.id)) { inclusive = false }
+                            }
+                        } ?: run {
+                            navController.navigate(Screen.Dashboard.route) {
+                                popUpTo(Screen.Dashboard.route) { inclusive = false }
+                            }
                         }
                     },
                     onSubmit = { rating, comment ->
@@ -385,18 +576,115 @@ fun HomeApp() {
             }
 
             composable(Screen.History.route) {
+                val contractorId = if (currentUser?.role == UserRole.CONTRACTOR) {
+                    viewModel.getContractorIdForUser(currentUser)
+                } else {
+                    null
+                }
                 HistoryScreen(
                     tickets = tickets,
                     jobs = jobs,
                     contractors = contractors,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    currentUserRole = currentUser?.role,
+                    currentContractorId = contractorId
                 )
             }
 
             composable(Screen.Chat.route) {
-                ChatScreen(
-                    onBack = { navController.popBackStack() }
-                )
+                // For contractors, show contractor-landlord chat screen
+                if (currentUser?.role == UserRole.CONTRACTOR) {
+                    val contractorId = viewModel.getContractorIdForUser(currentUser)
+                    ContractorLandlordChatScreen(
+                        tickets = allTickets,
+                        contractorId = contractorId,
+                        onTicketClick = { ticketId ->
+                            navController.navigate(Screen.ContractorLandlordConversation.createRoute(ticketId))
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                } else {
+                    ChatScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+            }
+            
+            composable(
+                route = Screen.ContractorLandlordConversation.route,
+                arguments = listOf(navArgument("ticketId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val ticketId = backStackEntry.arguments?.getString("ticketId") ?: ""
+                val ticket = allTickets.find { it.id == ticketId }
+                val messages by viewModel.contractorLandlordMessages.collectAsState()
+                
+                LaunchedEffect(ticketId) {
+                    if (ticketId.isNotEmpty()) {
+                        viewModel.startObservingContractorLandlordMessages(ticketId)
+                    }
+                }
+                
+                DisposableEffect(Unit) {
+                    onDispose {
+                        viewModel.clearContractorLandlordMessages()
+                    }
+                }
+                
+                if (ticket != null) {
+                    val landlordEmail = viewModel.getLandlordEmailForTicket(ticketId)
+                    ContractorLandlordConversationScreen(
+                        ticket = ticket,
+                        messages = messages,
+                        currentUserEmail = currentUser?.email ?: "",
+                        currentUserName = currentUser?.name ?: "",
+                        onSendMessage = { messageText ->
+                            landlordEmail?.let {
+                                viewModel.sendContractorLandlordMessage(ticketId, it, messageText)
+                            }
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+            }
+            
+            composable(
+                route = Screen.ContractorLandlordChat.route,
+                arguments = listOf(navArgument("ticketId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val ticketId = backStackEntry.arguments?.getString("ticketId") ?: ""
+                val ticket = allTickets.find { it.id == ticketId }
+                val messages by viewModel.contractorLandlordMessages.collectAsState()
+                
+                LaunchedEffect(ticketId) {
+                    if (ticketId.isNotEmpty()) {
+                        viewModel.startObservingContractorLandlordMessages(ticketId)
+                    }
+                }
+                
+                DisposableEffect(Unit) {
+                    onDispose {
+                        viewModel.clearContractorLandlordMessages()
+                    }
+                }
+                
+                val user = currentUser
+                if (ticket != null && user?.role == UserRole.LANDLORD) {
+                    // For landlord: use contractor ID as placeholder for email
+                    val contractorId = ticket.assignedTo ?: ticket.assignedContractor ?: ""
+                    
+                    ContractorLandlordConversationScreen(
+                        ticket = ticket,
+                        messages = messages,
+                        currentUserEmail = user.email,
+                        currentUserName = user.name,
+                        onSendMessage = { messageText ->
+                            // Pass contractor ID as the "other party email" parameter
+                            // The ViewModel will handle setting landlordEmail = currentUser.email
+                            viewModel.sendContractorLandlordMessage(ticketId, contractorId, messageText)
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
             }
 
             composable(Screen.AIDiagnosis.route) {
@@ -436,6 +724,81 @@ fun HomeApp() {
                         }
                     }
                 }
+            }
+            
+            composable(Screen.TenantLandlord.route) {
+                // Refresh connections when entering this screen
+                LaunchedEffect(Unit) {
+                    viewModel.refreshConnections()
+                }
+                
+                val pendingConnections = connections.filter { 
+                    it.status == ConnectionStatus.PENDING && it.tenantEmail == currentUser?.email 
+                }
+                val connectedLandlord = connections.find { 
+                    it.status == ConnectionStatus.CONNECTED && it.tenantEmail == currentUser?.email 
+                }
+                
+                LaunchedEffect(connectedLandlord?.landlordEmail) {
+                    connectedLandlord?.landlordEmail?.let { landlordEmail ->
+                        currentUser?.email?.let { tenantEmail ->
+                            viewModel.startObservingDirectMessages(tenantEmail)
+                        }
+                    }
+                }
+                
+                TenantLandlordScreen(
+                    connection = connectedLandlord,
+                    pendingConnections = pendingConnections,
+                    messages = directMessages,
+                    currentUserEmail = currentUser?.email ?: "",
+                    currentUserName = currentUser?.name ?: "",
+                    onConfirmConnection = { connectionId, accept ->
+                        viewModel.confirmConnection(connectionId, accept)
+                    },
+                    onSendMessage = { messageText ->
+                        viewModel.sendDirectMessage("", messageText)
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            
+            composable(Screen.LandlordTenants.route) {
+                // Refresh connections when entering this screen
+                LaunchedEffect(Unit) {
+                    viewModel.refreshConnections()
+                }
+                
+                LaunchedEffect(selectedTenantEmail) {
+                    selectedTenantEmail?.let { tenantEmail ->
+                        viewModel.startObservingDirectMessages(tenantEmail)
+                    } ?: run {
+                        viewModel.clearDirectMessages()
+                    }
+                }
+                
+                LandlordTenantsScreen(
+                    connections = connections,
+                    selectedTenantEmail = selectedTenantEmail,
+                    messages = directMessages,
+                    currentUserEmail = currentUser?.email ?: "",
+                    currentUserName = currentUser?.name ?: "",
+                    onAddTenant = { tenantEmail ->
+                        viewModel.requestTenantConnection(tenantEmail)
+                        // Refresh connections after requesting
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                            kotlinx.coroutines.delay(500) // Small delay to allow Firebase to save
+                            viewModel.refreshConnections()
+                        }
+                    },
+                    onSelectTenant = { tenantEmail ->
+                        selectedTenantEmail = tenantEmail
+                    },
+                    onSendMessage = { tenantEmail, messageText ->
+                        viewModel.sendDirectMessage(tenantEmail, messageText)
+                    },
+                    onBack = { navController.popBackStack() }
+                )
             }
         }
     }

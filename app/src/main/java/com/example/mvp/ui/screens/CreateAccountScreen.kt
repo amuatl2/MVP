@@ -16,12 +16,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mvp.data.UserRole
+import com.example.mvp.data.LocationData
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateAccountScreen(
     onBack: () -> Unit,
-    onCreateAccount: (String, String, String, UserRole) -> Unit,
+    onCreateAccount: (String, String, String, UserRole, String?, String?, String?, String?) -> Unit,
     authError: String? = null
 ) {
     var name by remember { mutableStateOf("") }
@@ -30,6 +31,30 @@ fun CreateAccountScreen(
     var confirmPassword by remember { mutableStateOf("") }
     var selectedRole by remember { mutableStateOf(UserRole.TENANT) }
     var accountCreated by remember { mutableStateOf(false) }
+    
+    // Location fields
+    var address by remember { mutableStateOf("") }
+    var selectedState by remember { mutableStateOf("") }
+    var selectedCity by remember { mutableStateOf("") }
+    var companyName by remember { mutableStateOf("") }
+    var showStateDropdown by remember { mutableStateOf(false) }
+    var showCityDropdown by remember { mutableStateOf(false) }
+    
+    // Update cities when state changes
+    val availableCities = remember(selectedState) {
+        if (selectedState.isNotEmpty()) {
+            LocationData.getCitiesForState(selectedState)
+        } else {
+            emptyList()
+        }
+    }
+    
+    // Reset city when state changes
+    LaunchedEffect(selectedState) {
+        if (selectedCity.isNotEmpty() && !availableCities.contains(selectedCity)) {
+            selectedCity = ""
+        }
+    }
 
     if (accountCreated) {
         SuccessScreen(
@@ -206,17 +231,134 @@ fun CreateAccountScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+            
+            // Role-specific fields
+            if (selectedRole == UserRole.CONTRACTOR) {
+                OutlinedTextField(
+                    value = companyName,
+                    onValueChange = { companyName = it },
+                    label = { Text("Company Name *") },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("ABC Contractors") },
+                    singleLine = true
+                )
+            }
+            
+            if (selectedRole == UserRole.TENANT || selectedRole == UserRole.CONTRACTOR) {
+                if (selectedRole == UserRole.TENANT) {
+                    OutlinedTextField(
+                        value = address,
+                        onValueChange = { address = it },
+                        label = { Text("Address *") },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("123 Main St, Apt 4B") },
+                        singleLine = true
+                    )
+                }
+                
+                // State Dropdown
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = if (selectedState.isEmpty()) "Select State *" else selectedState,
+                        onValueChange = { },
+                        label = { Text("State *") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showStateDropdown = true },
+                        readOnly = true,
+                        trailingIcon = {
+                            IconButton(onClick = { showStateDropdown = true }) {
+                                Text("▼", fontSize = 12.sp)
+                            }
+                        }
+                    )
+                    DropdownMenu(
+                        expanded = showStateDropdown,
+                        onDismissRequest = { showStateDropdown = false }
+                    ) {
+                        LocationData.states.forEach { state ->
+                            DropdownMenuItem(
+                                text = { Text(state) },
+                                onClick = {
+                                    selectedState = state
+                                    selectedCity = ""
+                                    showStateDropdown = false
+                                }
+                            )
+                        }
+                    }
+                }
+                
+                // City Dropdown
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = if (selectedCity.isEmpty()) "Select City *" else selectedCity,
+                        onValueChange = { },
+                        label = { Text("City *") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { 
+                                if (selectedState.isNotEmpty()) {
+                                    showCityDropdown = true
+                                }
+                            },
+                        readOnly = true,
+                        enabled = selectedState.isNotEmpty(),
+                        placeholder = { Text(if (selectedState.isEmpty()) "Select state first" else "Select City") },
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { 
+                                    if (selectedState.isNotEmpty()) {
+                                        showCityDropdown = true
+                                    }
+                                },
+                                enabled = selectedState.isNotEmpty()
+                            ) {
+                                Text("▼", fontSize = 12.sp)
+                            }
+                        }
+                    )
+                    DropdownMenu(
+                        expanded = showCityDropdown,
+                        onDismissRequest = { showCityDropdown = false }
+                    ) {
+                        availableCities.forEach { city ->
+                            DropdownMenuItem(
+                                text = { Text(city) },
+                                onClick = {
+                                    selectedCity = city
+                                    showCityDropdown = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             val canCreate = name.isNotBlank() && 
                            email.isNotBlank() && 
                            password.isNotBlank() && 
                            password == confirmPassword &&
-                           password.length >= 6
+                           password.length >= 6 &&
+                           (selectedRole != UserRole.CONTRACTOR || companyName.isNotBlank()) &&
+                           (selectedRole != UserRole.TENANT || (address.isNotBlank() && selectedState.isNotBlank() && selectedCity.isNotBlank())) &&
+                           (selectedRole != UserRole.CONTRACTOR || (selectedState.isNotBlank() && selectedCity.isNotBlank()))
 
             Button(
                 onClick = {
                     if (canCreate) {
-                        onCreateAccount(name, email, password, selectedRole)
+                        onCreateAccount(
+                            name, 
+                            email, 
+                            password, 
+                            selectedRole,
+                            if (selectedRole == UserRole.TENANT) address else null,
+                            if (selectedRole == UserRole.TENANT || selectedRole == UserRole.CONTRACTOR) selectedCity else null,
+                            if (selectedRole == UserRole.TENANT || selectedRole == UserRole.CONTRACTOR) selectedState else null,
+                            if (selectedRole == UserRole.CONTRACTOR) companyName else null
+                        )
                         accountCreated = true
                     }
                 },

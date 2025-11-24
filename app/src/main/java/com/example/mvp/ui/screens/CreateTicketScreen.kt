@@ -35,6 +35,7 @@ fun CreateTicketScreen(
     var category by remember { mutableStateOf("") }
     var showAIMessage by remember { mutableStateOf(false) }
     var submitted by remember { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
 
     if (submitted) {
         SuccessScreen(
@@ -362,7 +363,8 @@ fun CreateTicketScreen(
 
         Button(
             onClick = {
-                if (title.isNotEmpty() && description.isNotEmpty() && category.isNotEmpty()) {
+                if (title.isNotEmpty() && description.isNotEmpty() && category.isNotEmpty() && !isSubmitting) {
+                    isSubmitting = true
                     onSubmit(title, description, category, priority)
                     submitted = true
                 }
@@ -370,9 +372,16 @@ fun CreateTicketScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            enabled = title.isNotEmpty() && description.isNotEmpty() && category.isNotEmpty()
+            enabled = title.isNotEmpty() && description.isNotEmpty() && category.isNotEmpty() && !isSubmitting
         ) {
-            Text("Submit Ticket", fontSize = 16.sp)
+            if (isSubmitting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Text("Submit Ticket", fontSize = 16.sp)
+            }
         }
     }
 }

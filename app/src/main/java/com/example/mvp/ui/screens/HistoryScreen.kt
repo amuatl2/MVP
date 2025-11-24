@@ -25,18 +25,44 @@ fun HistoryScreen(
     tickets: List<Ticket>,
     jobs: List<Job>,
     contractors: List<Contractor>,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    currentUserRole: com.example.mvp.data.UserRole? = null,
+    currentContractorId: String? = null
 ) {
     var filterCategory by remember { mutableStateOf("") }
     var filterStatus by remember { mutableStateOf("") }
     var showCategoryDropdown by remember { mutableStateOf(false) }
     var showStatusDropdown by remember { mutableStateOf(false) }
 
-    val allTickets = tickets
-    val completedTickets = tickets.filter { it.status == TicketStatus.COMPLETED }
-    val totalTickets = allTickets.size
+    // For contractors, filter to only their jobs
+    val isContractor = currentUserRole == com.example.mvp.data.UserRole.CONTRACTOR
+    val contractorJobs = if (isContractor && currentContractorId != null) {
+        jobs.filter { it.contractorId == currentContractorId }
+    } else {
+        jobs
+    }
     
-    val avgRating = if (completedTickets.isNotEmpty()) {
+    val contractorTickets = if (isContractor && currentContractorId != null) {
+        tickets.filter { ticket ->
+            contractorJobs.any { it.ticketId == ticket.id }
+        }
+    } else {
+        tickets
+    }
+    
+    val allTickets = contractorTickets
+    val completedTickets = contractorTickets.filter { it.status == TicketStatus.COMPLETED }
+    val totalTickets = contractorJobs.size // Total jobs assigned to contractor
+    val completedJobs = contractorJobs.filter { it.status == "completed" }.size
+    
+    // Get contractor rating
+    val contractor = if (isContractor && currentContractorId != null) {
+        contractors.find { it.id == currentContractorId }
+    } else {
+        null
+    }
+    
+    val avgRating = contractor?.rating?.toDouble() ?: if (completedTickets.isNotEmpty()) {
         val ratings = completedTickets.mapNotNull { it.rating }
         if (ratings.isNotEmpty()) {
             ratings.average()
@@ -49,13 +75,10 @@ fun HistoryScreen(
     
     val reviewCount = completedTickets.count { it.rating != null }
     
-    val avgDuration = if (completedTickets.isNotEmpty()) {
-        completedTickets.size * 2.5
-    } else {
-        0.0
-    }
+    // Current Jobs (active jobs)
+    val currentJobs = contractorJobs.filter { it.status != "completed" }.size
 
-    val categories = tickets.map { it.category }.distinct().sorted()
+    val categories = contractorTickets.map { it.category }.distinct().sorted()
     val statuses = listOf("submitted", "assigned", "scheduled", "completed")
 
     val filteredTickets = allTickets.filter { ticket ->
@@ -63,7 +86,7 @@ fun HistoryScreen(
         (filterStatus.isEmpty() || ticket.status.name.lowercase() == filterStatus.lowercase())
     }
 
-    val categoryCounts = tickets.groupingBy { it.category }.eachCount()
+    val categoryCounts = contractorTickets.groupingBy { it.category }.eachCount()
     val maxCategoryCount = categoryCounts.values.maxOrNull() ?: 1
 
     Scaffold(
@@ -95,7 +118,7 @@ fun HistoryScreen(
                 )
             }
 
-            // Metrics Cards - 2x2 Grid
+            // Metrics Cards - 2x2 Grid for contractors, 2 cards for landlords
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -172,14 +195,14 @@ fun HistoryScreen(
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "${completedTickets.size}",
+                                    text = "$completedJobs",
                                     style = MaterialTheme.typography.displayMedium,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 32.sp
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 val completionRate = if (totalTickets > 0) {
-                                    (completedTickets.size * 100 / totalTickets)
+                                    (completedJobs * 100 / totalTickets)
                                 } else {
                                     0
                                 }
@@ -195,93 +218,96 @@ fun HistoryScreen(
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Avg. Rating
-                        Card(
-                            modifier = Modifier.weight(1f),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    // Only show Rating and Current Jobs for contractors
+                    if (isContractor) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top
-                                ) {
+                            // Avg. Rating
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Text(
+                                            text = "Rating",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text("⭐", fontSize = 20.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
                                     Text(
-                                        text = "Rating",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp,
+                                        text = String.format("%.1f/5.0", avgRating),
+                                        style = MaterialTheme.typography.displayMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 32.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "From $reviewCount review${if (reviewCount != 1) "s" else ""}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        fontSize = 11.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Text("⭐", fontSize = 20.sp)
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = String.format("%.1f/5.0", avgRating),
-                                    style = MaterialTheme.typography.displayMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 32.sp
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "From $reviewCount review${if (reviewCount != 1) "s" else ""}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
-                        }
 
-                        // Avg. Duration
-                        Card(
-                            modifier = Modifier.weight(1f),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top
-                                ) {
+                            // Current Jobs
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Text(
+                                            text = "Current Jobs",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text("💼", fontSize = 20.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
                                     Text(
-                                        text = "Duration",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp,
+                                        text = "$currentJobs",
+                                        style = MaterialTheme.typography.displayMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 32.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Active assignments",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        fontSize = 11.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Text("🕐", fontSize = 20.sp)
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = String.format("%.1f", avgDuration),
-                                    style = MaterialTheme.typography.displayMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 32.sp
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Days to completion",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
                         }
                     }

@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import com.example.mvp.auth.FirebaseAuthManager
 import com.example.mvp.data.*
@@ -32,12 +35,27 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
-    // All tickets (for landlords to see all)
+    // All tickets (from Firebase/DataStore - unfiltered)
     private val _allTickets = MutableStateFlow<List<Ticket>>(emptyList())
     
-    // Filtered tickets based on user role
+    // Expose all tickets for screens that need them (e.g., marketplace for contractors)
+    val allTickets: StateFlow<List<Ticket>> = _allTickets.asStateFlow()
+    
+    // Filtered tickets - only tickets created by current user
     private val _filteredTickets = MutableStateFlow<List<Ticket>>(emptyList())
     val tickets: StateFlow<List<Ticket>> = _filteredTickets.asStateFlow()
+    
+    // Landlord-Tenant Connections
+    private val _connections = MutableStateFlow<List<LandlordTenantConnection>>(emptyList())
+    val connections: StateFlow<List<LandlordTenantConnection>> = _connections.asStateFlow()
+    
+    // Direct Messages
+    private val _directMessages = MutableStateFlow<List<DirectMessage>>(emptyList())
+    val directMessages: StateFlow<List<DirectMessage>> = _directMessages.asStateFlow()
+    
+    // Contractor-Landlord Messages
+    private val _contractorLandlordMessages = MutableStateFlow<List<ContractorLandlordMessage>>(emptyList())
+    val contractorLandlordMessages: StateFlow<List<ContractorLandlordMessage>> = _contractorLandlordMessages.asStateFlow()
     
     private val _contractors = MutableStateFlow(MockData.mockContractors)
     val contractors: StateFlow<List<Contractor>> = _contractors.asStateFlow()
@@ -49,28 +67,60 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _filteredJobs = MutableStateFlow<List<Job>>(emptyList())
     val jobs: StateFlow<List<Job>> = _filteredJobs.asStateFlow()
     
+    // Job Applications
+    private val _jobApplications = MutableStateFlow<List<JobApplication>>(emptyList())
+    val jobApplications: StateFlow<List<JobApplication>> = _jobApplications.asStateFlow()
+    
+    // Users cache for location lookups
+    private val _usersCache = MutableStateFlow<Map<String, User>>(emptyMap())
+    
+    suspend fun getUserByEmail(email: String): User? {
+        if (_usersCache.value.containsKey(email)) {
+            return _usersCache.value[email]
+        }
+        if (useFirebase) {
+            val user = firebaseRepository.getUserByEmail(email)
+            if (user != null) {
+                _usersCache.value = _usersCache.value + (email to user)
+            }
+            return user
+        }
+        return null
+    }
+    
     init {
         // Update filtered tickets when user or all tickets change
         viewModelScope.launch {
             combine(
                 _currentUser,
-                _allTickets
-            ) { user, allTickets ->
+                _allTickets,
+                _connections
+            ) { user, allTickets, connections ->
                 if (user != null) {
                     when (user.role) {
                         UserRole.TENANT -> {
                             // Tenants see only their own tickets
-                            allTickets.filter { it.submittedBy == user.email }
+                            allTickets.filter { 
+                                it.submittedBy == user.email && it.submittedByRole == user.role
+                            }
                         }
                         UserRole.LANDLORD -> {
-                            // Landlords see all tickets
-                            allTickets
+                            // Landlords see tickets from their connected tenants only
+                            val connectedTenantEmails = connections
+                                .filter { it.status == ConnectionStatus.CONNECTED }
+                                .map { it.tenantEmail }
+                            allTickets.filter { 
+                                it.submittedByRole == UserRole.TENANT && 
+                                it.submittedBy in connectedTenantEmails
+                            }
                         }
                         UserRole.CONTRACTOR -> {
-                            // Contractors see tickets assigned to them
+                            // Contractors see tickets assigned to them or unassigned
                             val contractorId = getContractorIdForUser(user)
                             allTickets.filter { 
-                                it.assignedTo == contractorId || it.assignedContractor == contractorId
+                                val isAssignedToMe = it.assignedTo == contractorId || it.assignedContractor == contractorId
+                                val isUnassigned = it.assignedTo == null && it.status == TicketStatus.SUBMITTED
+                                isAssignedToMe || isUnassigned
                             }
                         }
                     }
@@ -147,14 +197,41 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (useFirebase) {
             viewModelScope.launch {
                 firebaseRepository.observeTickets().collect { tickets ->
-                    _allTickets.value = tickets
+                    // Remove duplicates by ID (in case of any race conditions)
+                    val uniqueTickets = tickets.distinctBy { it.id }
+                    _allTickets.value = uniqueTickets
                 }
             }
             
             viewModelScope.launch {
                 firebaseRepository.observeJobs().collect { jobs ->
-                    _allJobs.value = jobs
+                    // Remove duplicates by ID
+                    val uniqueJobs = jobs.distinctBy { it.id }
+                    _allJobs.value = uniqueJobs
                 }
+            }
+            
+            // Set up connections listener - restart when user changes
+            viewModelScope.launch {
+                _currentUser
+                    .flatMapLatest { user ->
+                        if (user != null && (user.role == UserRole.LANDLORD || user.role == UserRole.TENANT)) {
+                            // First emit initial connections, then observe
+                            flow {
+                                // Load and emit initial connections immediately
+                                emit(firebaseRepository.getConnectionsForUser(user.email, user.role))
+                                // Then continue with real-time updates
+                                firebaseRepository.observeConnections(user.email, user.role).collect { 
+                                    emit(it)
+                                }
+                            }
+                        } else {
+                            flowOf(emptyList())
+                        }
+                    }
+                    .collect { connections ->
+                        _connections.value = connections
+                    }
             }
         }
     }
@@ -273,7 +350,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun createAccount(name: String, email: String, password: String, role: UserRole) {
+    fun createAccount(name: String, email: String, password: String, role: UserRole, address: String?, city: String?, state: String?, companyName: String?) {
         viewModelScope.launch {
             _authError.value = null
             val firebaseResult = FirebaseAuthManager.createUserWithEmailAndPassword(email, password)
@@ -283,11 +360,33 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     val user = User(
                         email = firebaseUser.email ?: email,
                         role = role,
-                        name = name
+                        name = name,
+                        address = address,
+                        city = city,
+                        state = state,
+                        companyName = companyName
                     )
                     _currentUser.value = user
                     if (useFirebase) {
                         firebaseRepository.saveUser(user)
+                        // If contractor, also create/update contractor entry
+                        if (role == UserRole.CONTRACTOR) {
+                            val contractorId = "contractor-${user.email.replace("@", "-").replace(".", "-")}"
+                            val contractor = Contractor(
+                                id = contractorId,
+                                name = name,
+                                company = companyName ?: name,
+                                specialization = emptyList(),
+                                rating = 0f,
+                                distance = 0f,
+                                preferred = false,
+                                completedJobs = 0,
+                                email = user.email,
+                                city = city,
+                                state = state
+                            )
+                            firebaseRepository.saveContractor(contractor)
+                        }
                     } else {
                         dataRepository.saveCurrentUser(user)
                     }
@@ -299,11 +398,33 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         val user = User(
                             email = email,
                             role = role,
-                            name = name
+                            name = name,
+                            address = address,
+                            city = city,
+                            state = state,
+                            companyName = companyName
                         )
                         _currentUser.value = user
                         if (useFirebase) {
                             firebaseRepository.saveUser(user)
+                            // If contractor, also create/update contractor entry
+                            if (role == UserRole.CONTRACTOR) {
+                                val contractorId = "contractor-${user.email.replace("@", "-").replace(".", "-")}"
+                                val contractor = Contractor(
+                                    id = contractorId,
+                                    name = name,
+                                    company = companyName ?: name,
+                                    specialization = emptyList(),
+                                    rating = 0f,
+                                    distance = 0f,
+                                    preferred = false,
+                                    completedJobs = 0,
+                                    email = user.email,
+                                    city = city,
+                                    state = state
+                                )
+                                firebaseRepository.saveContractor(contractor)
+                            }
                         } else {
                             dataRepository.saveCurrentUser(user)
                         }
@@ -329,13 +450,21 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun addTicket(ticket: Ticket) {
         viewModelScope.launch {
             if (useFirebase) {
+                // Save to Firebase
                 firebaseRepository.saveTicket(ticket)
-                // Real-time listener will update _allTickets
+                // Update local state immediately for instant UI feedback
+                // The real-time listener will also update, but distinctBy prevents duplicates
+                val currentTickets = _allTickets.value
+                if (currentTickets.none { it.id == ticket.id }) {
+                    _allTickets.value = currentTickets + ticket
+                }
             } else {
+                // Save to DataStore
                 val updatedTickets = _allTickets.value + ticket
                 _allTickets.value = updatedTickets
                 val currentUser = _currentUser.value
                 if (currentUser != null) {
+                    // Save all tickets (shared across users)
                     dataRepository.saveTickets(currentUser.email, updatedTickets)
                 }
             }
@@ -345,23 +474,74 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun updateTicket(id: String, updates: Ticket) {
         viewModelScope.launch {
             if (useFirebase) {
+                // Save to Firebase - the real-time listener will update _allTickets automatically
                 firebaseRepository.saveTicket(updates)
-                // Real-time listener will update _allTickets
+                // Don't update local state here to avoid duplicates - let the listener handle it
             } else {
+                // Save to DataStore
                 val updatedTickets = _allTickets.value.map { if (it.id == id) updates else it }
                 _allTickets.value = updatedTickets
                 val currentUser = _currentUser.value
                 if (currentUser != null) {
+                    // Save all tickets (shared across users)
                     dataRepository.saveTickets(currentUser.email, updatedTickets)
                 }
             }
         }
     }
 
+    fun applyToJob(ticketId: String, contractorId: String, contractorName: String, contractorEmail: String) {
+        viewModelScope.launch {
+            val ticket = _allTickets.value.find { it.id == ticketId }
+            if (ticket != null && ticket.assignedTo == null) {
+                // Check if already applied
+                val existingApplication = _jobApplications.value.find { 
+                    it.ticketId == ticketId && it.contractorId == contractorId 
+                }
+                if (existingApplication == null && useFirebase) {
+                    val application = JobApplication(
+                        id = "app-${ticketId}-${contractorId}-${System.currentTimeMillis()}",
+                        ticketId = ticketId,
+                        contractorId = contractorId,
+                        contractorName = contractorName,
+                        contractorEmail = contractorEmail,
+                        appliedAt = com.example.mvp.utils.DateUtils.getCurrentDateTimeString(),
+                        status = ApplicationStatus.PENDING
+                    )
+                    firebaseRepository.saveJobApplication(application)
+                }
+            }
+        }
+    }
+    
+    fun startObservingJobApplications(ticketId: String) {
+        viewModelScope.launch {
+            if (useFirebase) {
+                firebaseRepository.observeJobApplications(ticketId).collect { applications ->
+                    _jobApplications.value = _jobApplications.value.filter { it.ticketId != ticketId } + applications
+                }
+            }
+        }
+    }
+    
     fun assignContractor(ticketId: String, contractorId: String) {
         viewModelScope.launch {
             val ticket = _allTickets.value.find { it.id == ticketId }
             if (ticket != null && ticket.assignedTo == null) {
+                // Update application status to ACCEPTED if it exists
+                val application = _jobApplications.value.find { 
+                    it.ticketId == ticketId && it.contractorId == contractorId 
+                }
+                if (application != null && useFirebase) {
+                    firebaseRepository.updateApplicationStatus(application.id, ApplicationStatus.ACCEPTED)
+                    // Reject all other applications for this ticket
+                    _jobApplications.value.filter { 
+                        it.ticketId == ticketId && it.contractorId != contractorId 
+                    }.forEach { otherApp ->
+                        firebaseRepository.updateApplicationStatus(otherApp.id, ApplicationStatus.REJECTED)
+                    }
+                }
+                
                 updateTicket(
                     ticketId,
                     ticket.copy(
@@ -446,6 +626,24 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 ticket?.let { t ->
                     updateTicket(t.id, t.copy(rating = rating))
                 }
+                
+                // Update contractor rating - calculate average from all completed jobs
+                val contractor = _contractors.value.find { it.id == job.contractorId }
+                contractor?.let { c ->
+                    val contractorJobs = _allJobs.value.filter { it.contractorId == c.id && it.rating != null }
+                    val averageRating = if (contractorJobs.isNotEmpty()) {
+                        contractorJobs.mapNotNull { it.rating }.average().toFloat()
+                    } else {
+                        rating // First rating
+                    }
+                    
+                    val updatedContractor = c.copy(rating = averageRating)
+                    if (useFirebase) {
+                        firebaseRepository.saveContractor(updatedContractor)
+                    } else {
+                        _contractors.value = _contractors.value.map { if (it.id == c.id) updatedContractor else it }
+                    }
+                }
             }
         }
     }
@@ -486,6 +684,194 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             it.name.contains(user.name, ignoreCase = true) || 
             it.name.contains(user.email.split("@").first(), ignoreCase = true)
         }?.id ?: _contractors.value.firstOrNull()?.id
+    }
+    
+    // Landlord-Tenant Connection functions
+    fun requestTenantConnection(tenantEmail: String) {
+        viewModelScope.launch {
+            val currentUser = _currentUser.value
+            if (currentUser != null && currentUser.role == UserRole.LANDLORD) {
+                if (useFirebase) {
+                    firebaseRepository.requestConnection(
+                        landlordEmail = currentUser.email,
+                        tenantEmail = tenantEmail,
+                        requestedBy = currentUser.email
+                    )
+                }
+            }
+        }
+    }
+    
+    fun confirmConnection(connectionId: String, accept: Boolean) {
+        viewModelScope.launch {
+            if (useFirebase) {
+                val status = if (accept) ConnectionStatus.CONNECTED else ConnectionStatus.REJECTED
+                firebaseRepository.updateConnectionStatus(connectionId, status)
+            }
+        }
+    }
+    
+    fun getConnectedTenants(): List<String> {
+        val currentUser = _currentUser.value
+        return if (currentUser?.role == UserRole.LANDLORD) {
+            _connections.value
+                .filter { it.status == ConnectionStatus.CONNECTED }
+                .map { it.tenantEmail }
+        } else {
+            emptyList()
+        }
+    }
+    
+    fun getLandlordEmail(): String? {
+        val currentUser = _currentUser.value
+        return if (currentUser?.role == UserRole.TENANT) {
+            _connections.value
+                .filter { it.status == ConnectionStatus.CONNECTED }
+                .firstOrNull()
+                ?.landlordEmail
+        } else {
+            null
+        }
+    }
+    
+    // Direct Messaging functions
+    fun sendDirectMessage(tenantEmail: String, messageText: String) {
+        viewModelScope.launch {
+            val currentUser = _currentUser.value
+            if (currentUser != null && useFirebase) {
+                val landlordEmail = if (currentUser.role == UserRole.LANDLORD) {
+                    currentUser.email
+                } else {
+                    getLandlordEmail() ?: return@launch
+                }
+                val tenant = if (currentUser.role == UserRole.TENANT) {
+                    currentUser.email
+                } else {
+                    tenantEmail
+                }
+                
+                val message = DirectMessage(
+                    id = "msg-${System.currentTimeMillis()}",
+                    landlordEmail = landlordEmail,
+                    tenantEmail = tenant,
+                    senderEmail = currentUser.email,
+                    senderName = currentUser.name,
+                    text = messageText,
+                    timestamp = com.example.mvp.utils.DateUtils.getCurrentDateTimeString()
+                )
+                firebaseRepository.sendDirectMessage(message)
+            }
+        }
+    }
+    
+    fun startObservingDirectMessages(tenantEmail: String) {
+        viewModelScope.launch {
+            val currentUser = _currentUser.value
+            if (currentUser != null && useFirebase) {
+                val landlordEmail = if (currentUser.role == UserRole.LANDLORD) {
+                    currentUser.email
+                } else {
+                    getLandlordEmail() ?: return@launch
+                }
+                val tenant = if (currentUser.role == UserRole.TENANT) {
+                    currentUser.email
+                } else {
+                    tenantEmail
+                }
+                
+                firebaseRepository.observeDirectMessages(landlordEmail, tenant).collect { messages ->
+                    _directMessages.value = messages
+                }
+            }
+        }
+    }
+    
+    fun clearDirectMessages() {
+        _directMessages.value = emptyList()
+    }
+    
+    fun refreshConnections() {
+        viewModelScope.launch {
+            val currentUser = _currentUser.value
+            if (currentUser != null && (currentUser.role == UserRole.LANDLORD || currentUser.role == UserRole.TENANT)) {
+                if (useFirebase) {
+                    _connections.value = firebaseRepository.getConnectionsForUser(currentUser.email, currentUser.role)
+                }
+            }
+        }
+    }
+    
+    // Contractor-Landlord Messaging functions
+    fun sendContractorLandlordMessage(ticketId: String, otherPartyEmail: String, messageText: String) {
+        viewModelScope.launch {
+            val currentUser = _currentUser.value
+            if (currentUser != null && useFirebase) {
+                val ticket = _allTickets.value.find { it.id == ticketId }
+                val contractorEmail = if (currentUser.role == UserRole.CONTRACTOR) {
+                    currentUser.email
+                } else {
+                    // For landlord, we need to get contractor email from ticket
+                    // Since we only have contractor ID, we'll use a workaround
+                    // In production, contractors should have email stored
+                    ticket?.assignedTo ?: ticket?.assignedContractor ?: ""
+                }
+                
+                val landlordEmail = if (currentUser.role == UserRole.LANDLORD) {
+                    currentUser.email
+                } else {
+                    // For contractor, use the provided landlord email
+                    otherPartyEmail
+                }
+                
+                val message = ContractorLandlordMessage(
+                    id = "cl-msg-${System.currentTimeMillis()}",
+                    ticketId = ticketId,
+                    contractorEmail = contractorEmail,
+                    landlordEmail = landlordEmail,
+                    senderEmail = currentUser.email,
+                    senderName = currentUser.name,
+                    text = messageText,
+                    timestamp = com.example.mvp.utils.DateUtils.getCurrentDateTimeString()
+                )
+                firebaseRepository.sendContractorLandlordMessage(message)
+            }
+        }
+    }
+    
+    fun startObservingContractorLandlordMessages(ticketId: String) {
+        viewModelScope.launch {
+            if (useFirebase) {
+                firebaseRepository.observeContractorLandlordMessages(ticketId).collect { messages ->
+                    _contractorLandlordMessages.value = messages
+                }
+            }
+        }
+    }
+    
+    fun clearContractorLandlordMessages() {
+        _contractorLandlordMessages.value = emptyList()
+    }
+    
+    fun getLandlordEmailForTicket(ticketId: String): String? {
+        val ticket = _allTickets.value.find { it.id == ticketId }
+        // Find the landlord connected to the tenant who submitted the ticket
+        if (ticket != null && ticket.submittedByRole == UserRole.TENANT) {
+            val connection = _connections.value.find { 
+                it.tenantEmail == ticket.submittedBy && it.status == ConnectionStatus.CONNECTED
+            }
+            return connection?.landlordEmail
+        }
+        return null
+    }
+    
+    fun getContractorEmailForTicket(ticketId: String): String? {
+        val ticket = _allTickets.value.find { it.id == ticketId }
+        if (ticket != null && ticket.assignedTo != null) {
+            // We need to get contractor email, but we only have contractor ID
+            // For now, return null and handle in UI
+            return null
+        }
+        return null
     }
 }
 

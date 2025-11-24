@@ -29,22 +29,19 @@ fun TopNavigationBar(
         UserRole.TENANT -> listOf(
             NavItem("Dashboard", "dashboard", Icons.Default.Home),
             NavItem("Ticket", "create_ticket", Icons.Default.Add),
-            NavItem("Chat", "chat", Icons.Default.Email),
+            NavItem("Landlord", "tenant_landlord", Icons.Default.Person),
             NavItem("History", "history", Icons.Default.Info)
         )
         UserRole.LANDLORD -> listOf(
             NavItem("Dashboard", "dashboard", Icons.Default.Home),
-            NavItem("Ticket", "create_ticket", Icons.Default.Add),
+            NavItem("Tenants", "landlord_tenants", Icons.Default.Person),
             NavItem("Marketplace", "marketplace", Icons.Default.Person),
-            NavItem("AI Diagnosis", "ai_diagnosis", Icons.Default.Info),
             NavItem("History", "history", Icons.Default.Info)
         )
         UserRole.CONTRACTOR -> listOf(
             NavItem("Jobs", "contractor_dashboard", Icons.Default.Build),
             NavItem("Schedule", "schedule", Icons.Default.DateRange),
-            NavItem("Rating", "rating", Icons.Default.Star),
-            NavItem("History", "history", Icons.Default.Info),
-            NavItem("Chat", "chat", Icons.Default.Email)
+            NavItem("History", "history", Icons.Default.Info)
         )
     }
 

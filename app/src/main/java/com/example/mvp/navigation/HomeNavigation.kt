@@ -18,6 +18,9 @@ sealed class Screen(val route: String) {
     object JobDetail : Screen("job_detail/{jobId}") {
         fun createRoute(jobId: String) = "job_detail/$jobId"
     }
+    object JobDetailTicket : Screen("job_detail_ticket/{ticketId}") {
+        fun createRoute(ticketId: String) = "job_detail_ticket/$ticketId"
+    }
     object Schedule : Screen("schedule/{ticketId}") {
         fun createRoute(ticketId: String? = null) = if (ticketId != null) "schedule/$ticketId" else "schedule/null"
     }
@@ -27,5 +30,13 @@ sealed class Screen(val route: String) {
     object History : Screen("history")
     object Chat : Screen("chat")
     object AIDiagnosis : Screen("ai_diagnosis")
+    object TenantLandlord : Screen("tenant_landlord")
+    object LandlordTenants : Screen("landlord_tenants")
+    object ContractorLandlordChat : Screen("contractor_landlord_chat/{ticketId}") {
+        fun createRoute(ticketId: String) = "contractor_landlord_chat/$ticketId"
+    }
+    object ContractorLandlordConversation : Screen("contractor_landlord_conversation/{ticketId}") {
+        fun createRoute(ticketId: String) = "contractor_landlord_conversation/$ticketId"
+    }
 }
 
