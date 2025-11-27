@@ -23,9 +23,10 @@ fun TenantLandlordScreen(
     currentUserName: String,
     onConfirmConnection: (String, Boolean) -> Unit,
     onSendMessage: (String) -> Unit,
-    onBack: () -> Unit
+    onOpenChat: () -> Unit,
+    onBack: () -> Unit,
+    globalLastViewedTimestamps: MutableMap<String, String>? = null // Pass global timestamps
 ) {
-    var newMessage by remember { mutableStateOf("") }
     var showRequestsDialog by remember { mutableStateOf(false) }
     
     val pendingCount = pendingConnections.size
@@ -53,17 +54,17 @@ fun TenantLandlordScreen(
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // Landlord Requests Button
-        if (pendingCount > 0) {
-            Button(
-                onClick = { showRequestsDialog = true },
-                modifier = Modifier.fillMaxWidth()
+        // Landlord Requests Button - Always visible
+        Button(
+            onClick = { showRequestsDialog = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Landlord Requests")
+                Text("Landlord Requests")
+                if (pendingCount > 0) {
                     Badge(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError
@@ -72,8 +73,8 @@ fun TenantLandlordScreen(
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
         }
+        Spacer(modifier = Modifier.height(16.dp))
         
         // Landlord Requests Dialog
         if (showRequestsDialog) {
@@ -196,94 +197,6 @@ fun TenantLandlordScreen(
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
-                
-                // Messages Section
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp)
-                    ) {
-                        Text(
-                            text = "Messages",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        if (messages.isEmpty()) {
-                            Text(
-                                text = "No messages yet. Start a conversation!",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                        } else {
-                            messages.forEach { message ->
-                                val isSentByMe = message.senderEmail == currentUserEmail
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = if (isSentByMe) Arrangement.End else Arrangement.Start
-                                ) {
-                                    Card(
-                                        modifier = Modifier.widthIn(max = 280.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = if (isSentByMe)
-                                                MaterialTheme.colorScheme.primaryContainer
-                                            else
-                                                MaterialTheme.colorScheme.surfaceVariant
-                                        )
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(12.dp)
-                                        ) {
-                                            Text(
-                                                text = message.text,
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = message.timestamp,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = newMessage,
-                                onValueChange = { newMessage = it },
-                                placeholder = { Text("Type a message...") },
-                                modifier = Modifier.weight(1f)
-                            )
-                            Button(
-                                onClick = {
-                                    if (newMessage.isNotBlank()) {
-                                        onSendMessage(newMessage)
-                                        newMessage = ""
-                                    }
-                                },
-                                enabled = newMessage.isNotBlank()
-                            ) {
-                                Text("Send")
-                            }
-                        }
-                    }
-                }
             }
         } ?: run {
             // No connection
@@ -310,6 +223,32 @@ fun TenantLandlordScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
+                }
+            }
+        }
+        
+        // Messages Button - At the bottom for connected landlords
+        connection?.let { conn ->
+            if (conn.status == ConnectionStatus.CONNECTED) {
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Messages Button
+                // Unread count is now based on readBy field, not timestamps
+                val unreadCount = remember(messages, currentUserEmail) {
+                    messages.filter { 
+                        // Only count messages sent by landlord that haven't been read by current user
+                        it.senderEmail.lowercase() != currentUserEmail.lowercase() &&
+                        !it.readBy.contains(currentUserEmail.lowercase())
+                    }.size
+                }
+                
+                Button(
+                    onClick = {
+                        onOpenChat()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open Messages")
                 }
             }
         }

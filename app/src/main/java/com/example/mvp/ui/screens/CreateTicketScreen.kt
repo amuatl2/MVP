@@ -27,22 +27,50 @@ import kotlinx.coroutines.launch
 @Composable
 fun CreateTicketScreen(
     onBack: () -> Unit,
-    onSubmit: (String, String, String, String) -> Unit
+    onSubmit: (String, String, String, String) -> Unit, // Returns ticketId
+    hasConnectedLandlord: Boolean = true // Default to true to allow creation if not checked
 ) {
     val context = LocalContext.current
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") }
     var showAIMessage by remember { mutableStateOf(false) }
-    var submitted by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
-
-    if (submitted) {
-        SuccessScreen(
-            message = "Ticket Submitted Successfully!",
-            subtitle = "Your maintenance request has been created and will be reviewed soon.",
-            onBack = onBack
-        )
+    
+    // Check if tenant has a connected landlord
+    if (!hasConnectedLandlord) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "🔗",
+                fontSize = 64.sp
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Connect with Your Landlord",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "You need to connect with your landlord before you can create maintenance tickets.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = onBack,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Go Back")
+            }
+        }
         return
     }
 
@@ -150,7 +178,7 @@ fun CreateTicketScreen(
         var expanded by remember { mutableStateOf(false) }
         var priorityExpanded by remember { mutableStateOf(false) }
         var priority by remember { mutableStateOf("Medium") }
-        val categories = listOf("Plumbing", "Electrical", "HVAC", "Appliance", "General Maintenance")
+        val categories = com.example.mvp.data.JobTypes.ALL_TYPES
         val priorities = listOf("Low", "Medium", "High", "Urgent")
 
         Box {
@@ -366,7 +394,7 @@ fun CreateTicketScreen(
                 if (title.isNotEmpty() && description.isNotEmpty() && category.isNotEmpty() && !isSubmitting) {
                     isSubmitting = true
                     onSubmit(title, description, category, priority)
-                    submitted = true
+                    // Navigation will be handled by the parent (MainActivity)
                 }
             },
             modifier = Modifier

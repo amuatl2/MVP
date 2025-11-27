@@ -33,19 +33,24 @@ fun ContractorScheduleScreen(
     var currentMonth by remember { mutableStateOf(Date()) }
     var selectedDate by remember { mutableStateOf<Date?>(null) }
     
-    // Get jobs with scheduled dates
+    // Get jobs with scheduled dates (from job.scheduledDate or ticket.scheduledDate)
+    // Exclude completed jobs - they should not appear on the calendar
     val scheduledJobs = jobs.filter { job ->
-        val ticket = tickets.find { it.id == job.ticketId }
-        ticket?.scheduledDate != null && ticket.status == TicketStatus.SCHEDULED
+        // Only include jobs that are not completed
+        job.status != "completed" && 
+        ((job.scheduledDate != null && job.scheduledTime != null) || 
+        (tickets.find { it.id == job.ticketId }?.scheduledDate != null && 
+         tickets.find { it.id == job.ticketId }?.status == TicketStatus.SCHEDULED))
     }
     
     // Group jobs by date
     val jobsByDate = scheduledJobs.groupBy { job ->
-        val ticket = tickets.find { it.id == job.ticketId }
-        ticket?.scheduledDate?.let { dateStr ->
+        // Prefer job.scheduledDate, fallback to ticket.scheduledDate
+        val dateStr = job.scheduledDate ?: tickets.find { it.id == job.ticketId }?.scheduledDate
+        dateStr?.let {
             try {
-                // scheduledDate format is "yyyy-MM-dd HH:mm", extract just the date part
-                val dateOnly = dateStr.split(" ").firstOrNull() ?: dateStr
+                // scheduledDate format is "yyyy-MM-dd" or "yyyy-MM-dd HH:mm", extract just the date part
+                val dateOnly = it.split(" ").firstOrNull() ?: it
                 DateUtils.parseDate(dateOnly)
             } catch (e: Exception) {
                 null
@@ -269,15 +274,20 @@ fun ContractorScheduleScreen(
                                                 fontWeight = FontWeight.Medium
                                             )
                                             Spacer(modifier = Modifier.height(4.dp))
-                                            ticket?.scheduledDate?.let { dateStr ->
-                                                // Extract time from scheduledDate if it contains time info
-                                                val timeInfo = if (dateStr.contains(" ")) {
-                                                    dateStr.split(" ").getOrNull(1) ?: "Not specified"
+                                            // Show scheduled date and time
+                                            val scheduledDateStr = job.scheduledDate ?: ticket?.scheduledDate
+                                            val scheduledTimeStr = job.scheduledTime
+                                            if (scheduledDateStr != null) {
+                                                val timeDisplay = if (scheduledTimeStr != null) {
+                                                    val time12Hour = com.example.mvp.utils.DateUtils.formatTime12Hour(scheduledTimeStr)
+                                                    "$scheduledDateStr at $time12Hour"
+                                                } else if (scheduledDateStr.contains(" ")) {
+                                                    scheduledDateStr // Already includes time
                                                 } else {
-                                                    "Not specified"
+                                                    scheduledDateStr
                                                 }
                                                 Text(
-                                                    text = "Scheduled: $dateStr",
+                                                    text = "Scheduled: $timeDisplay",
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                                 )

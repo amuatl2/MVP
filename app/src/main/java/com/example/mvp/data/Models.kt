@@ -41,7 +41,8 @@ data class Ticket(
     val createdDate: String? = null,
     val priority: String? = null,
     val ticketNumber: String? = null,
-    val messages: List<Message> = emptyList()
+    val messages: List<Message> = emptyList(),
+    val viewedByLandlord: Boolean = false
 )
 
 enum class TicketStatus {
@@ -59,7 +60,8 @@ data class Contractor(
     val completedJobs: Int,
     val email: String? = null,
     val city: String? = null,
-    val state: String? = null
+    val state: String? = null,
+    val serviceAreas: Map<String, List<String>> = emptyMap() // Map of state -> list of cities
 )
 
 data class Job(
@@ -72,7 +74,11 @@ data class Job(
     val status: String,
     val cost: Int? = null,
     val duration: Int? = null,
-    val rating: Float? = null
+    val rating: Float? = null,
+    val completionPhotos: List<String> = emptyList(),
+    val completionNotes: String? = null,
+    val scheduledDate: String? = null, // Format: "yyyy-MM-dd"
+    val scheduledTime: String? = null // Format: "HH:mm"
 )
 
 data class JobApplication(
@@ -87,6 +93,20 @@ data class JobApplication(
 
 enum class ApplicationStatus {
     PENDING, ACCEPTED, REJECTED
+}
+
+data class JobInvitation(
+    val id: String,
+    val ticketId: String,
+    val contractorId: String,
+    val contractorEmail: String,
+    val landlordEmail: String,
+    val invitedAt: String,
+    val status: InvitationStatus = InvitationStatus.PENDING
+)
+
+enum class InvitationStatus {
+    PENDING, ACCEPTED, DECLINED
 }
 
 data class LandlordTenantConnection(
@@ -107,12 +127,14 @@ enum class ConnectionStatus {
 
 data class DirectMessage(
     val id: String,
-    val landlordEmail: String,
-    val tenantEmail: String,
+    val landlordEmail: String = "", // Kept for backward compatibility
+    val tenantEmail: String = "", // Kept for backward compatibility
     val senderEmail: String,
+    val receiverEmail: String, // New: the recipient of the message (generalized)
     val senderName: String,
     val text: String,
-    val timestamp: String
+    val timestamp: String,
+    val readBy: Set<String> = emptySet() // Set of emails who have read this message
 )
 
 data class ContractorLandlordMessage(
@@ -123,6 +145,7 @@ data class ContractorLandlordMessage(
     val senderEmail: String,
     val senderName: String,
     val text: String,
-    val timestamp: String
+    val timestamp: String,
+    val readBy: Set<String> = emptySet() // Set of emails who have read this message
 )
 

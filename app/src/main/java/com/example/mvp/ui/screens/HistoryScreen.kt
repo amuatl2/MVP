@@ -36,24 +36,41 @@ fun HistoryScreen(
 
     // For contractors, filter to only their jobs
     val isContractor = currentUserRole == com.example.mvp.data.UserRole.CONTRACTOR
+    val isLandlord = currentUserRole == com.example.mvp.data.UserRole.LANDLORD
+    val isTenant = currentUserRole == com.example.mvp.data.UserRole.TENANT
     val contractorJobs = if (isContractor && currentContractorId != null) {
         jobs.filter { it.contractorId == currentContractorId }
     } else {
         jobs
     }
     
+    // For landlords: use all tickets (not filtered by connection status)
+    // For contractors: filter to only their jobs
     val contractorTickets = if (isContractor && currentContractorId != null) {
         tickets.filter { ticket ->
             contractorJobs.any { it.ticketId == ticket.id }
         }
     } else {
+        // For landlords and others, use all tickets passed in
         tickets
     }
     
     val allTickets = contractorTickets
-    val completedTickets = contractorTickets.filter { it.status == TicketStatus.COMPLETED }
-    val totalTickets = contractorJobs.size // Total jobs assigned to contractor
-    val completedJobs = contractorJobs.filter { it.status == "completed" }.size
+    val completedTickets = allTickets.filter { it.status == TicketStatus.COMPLETED }
+    
+    // For landlords: total = all tickets ever received, done = completed tickets
+    // For contractors: total = jobs assigned, done = completed jobs
+    // For tenants: total = all tickets they've submitted, done = completed tickets
+    val totalTickets = when {
+        isLandlord -> allTickets.size // Total tickets ever received (all tickets from their tenants)
+        isTenant -> allTickets.size // Total tickets the tenant has submitted
+        else -> contractorJobs.size // Total jobs assigned to contractor
+    }
+    val completedJobs = when {
+        isLandlord -> completedTickets.size // Completed tickets
+        isTenant -> completedTickets.size // Completed tickets the tenant has submitted
+        else -> contractorJobs.filter { it.status == "completed" }.size // Completed jobs
+    }
     
     // Get contractor rating
     val contractor = if (isContractor && currentContractorId != null) {
@@ -78,13 +95,42 @@ fun HistoryScreen(
     // Current Jobs (active jobs)
     val currentJobs = contractorJobs.filter { it.status != "completed" }.size
 
-    val categories = contractorTickets.map { it.category }.distinct().sorted()
+    val categories = com.example.mvp.data.JobTypes.ALL_TYPES
     val statuses = listOf("submitted", "assigned", "scheduled", "completed")
 
     val filteredTickets = allTickets.filter { ticket ->
         (filterCategory.isEmpty() || ticket.category == filterCategory) &&
         (filterStatus.isEmpty() || ticket.status.name.lowercase() == filterStatus.lowercase())
-    }
+    }.sortedWith(compareByDescending<Ticket> { ticket ->
+        // Non-completed tickets first (higher priority)
+        ticket.status != TicketStatus.COMPLETED
+    }.thenBy { ticket ->
+        // For non-completed tickets, sort by status: SUBMITTED (least done) -> ASSIGNED -> SCHEDULED
+        when (ticket.status) {
+            TicketStatus.SUBMITTED -> 1
+            TicketStatus.ASSIGNED -> 2
+            TicketStatus.SCHEDULED -> 3
+            TicketStatus.COMPLETED -> 4
+        }
+    }.thenBy { ticket ->
+        // Completed tickets sorted by completion date (least recent first = lower timestamp)
+        when {
+            ticket.status == TicketStatus.COMPLETED -> {
+                // Parse completion date for sorting (least recent at top)
+                val completionDate = ticket.completedDate ?: ticket.createdAt
+                try {
+                    // Try to parse date - least recent dates have lower values
+                    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    val dateStr = completionDate.split("T").firstOrNull() ?: completionDate.split(" ").firstOrNull() ?: ""
+                    val date = dateFormat.parse(dateStr)
+                    -(date?.time ?: 0L) // Negative to sort least recent first
+                } catch (e: Exception) {
+                    0L
+                }
+            }
+            else -> 0L // Non-completed tickets maintain their order
+        }
+    })
 
     val categoryCounts = contractorTickets.groupingBy { it.category }.eachCount()
     val maxCategoryCount = categoryCounts.values.maxOrNull() ?: 1

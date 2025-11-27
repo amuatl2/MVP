@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +26,7 @@ fun TicketDetailScreen(
     onAssignContractor: () -> Unit,
     onScheduleVisit: () -> Unit,
     onRateJob: (() -> Unit)? = null,
+    onMessageContractor: (() -> Unit)? = null, // New callback for messaging contractor
     userRole: com.example.mvp.data.UserRole,
     currentUserEmail: String? = null,
     currentUserName: String? = null,
@@ -518,16 +520,58 @@ fun TicketDetailScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Show rate button for completed tickets without ratings (for tenants/landlords)
-                if ((userRole == com.example.mvp.data.UserRole.TENANT || userRole == com.example.mvp.data.UserRole.LANDLORD) &&
-                    ticket.status == TicketStatus.COMPLETED &&
-                    ticket.rating == null &&
-                    onRateJob != null) {
-                    Button(
-                        onClick = onRateJob,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Rate This Job")
+                // Tenant-specific actions
+                if (userRole == com.example.mvp.data.UserRole.TENANT) {
+                    when (ticket.status) {
+                        TicketStatus.ASSIGNED, TicketStatus.SCHEDULED -> {
+                            // Message Contractor button - always show, but disabled if no contractor assigned
+                            OutlinedButton(
+                                onClick = onMessageContractor ?: {},
+                                enabled = ticket.assignedTo != null && onMessageContractor != null,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Email, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Message Contractor")
+                            }
+                        }
+                        TicketStatus.COMPLETED -> {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                onRateJob?.let { rateJob ->
+                                    Button(
+                                        onClick = rateJob,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Rate Job")
+                                    }
+                                }
+                                // Message Contractor button - always show, but disabled if no contractor assigned
+                                OutlinedButton(
+                                    onClick = onMessageContractor ?: {},
+                                    enabled = ticket.assignedTo != null && onMessageContractor != null,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Email, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Message Contractor")
+                                }
+                            }
+                        }
+                        else -> {
+                            // Message Contractor button - always show, but disabled when ticket not assigned
+                            OutlinedButton(
+                                onClick = {},
+                                enabled = false,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Email, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Message Contractor")
+                            }
+                        }
                     }
                 }
                 

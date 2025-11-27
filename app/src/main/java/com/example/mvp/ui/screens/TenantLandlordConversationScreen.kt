@@ -14,17 +14,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.mvp.data.ContractorLandlordMessage
-import com.example.mvp.data.Ticket
+import com.example.mvp.data.DirectMessage
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ContractorLandlordConversationScreen(
-    ticket: Ticket?,
-    messages: List<ContractorLandlordMessage>,
+fun TenantLandlordConversationScreen(
+    landlordEmail: String,
+    tenantEmail: String = "", // Add tenant email parameter
+    messages: List<DirectMessage>,
     currentUserEmail: String,
     currentUserName: String,
+    currentUserRole: com.example.mvp.data.UserRole? = null, // Add role parameter
     onSendMessage: (String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -69,15 +70,25 @@ fun ContractorLandlordConversationScreen(
                 title = {
                     Column {
                         Text(
-                            text = ticket?.title ?: "General Chat",
+                            text = when (currentUserRole) {
+                                com.example.mvp.data.UserRole.CONTRACTOR -> {
+                                    // For contractors, show tenant name
+                                    if (tenantEmail.isNotEmpty()) {
+                                        "Chat with ${tenantEmail.split("@").first().replaceFirstChar { it.uppercase() }}"
+                                    } else {
+                                        "Chat with Tenant"
+                                    }
+                                }
+                                com.example.mvp.data.UserRole.TENANT -> "Chat with Landlord"
+                                else -> "Chat"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (ticket != null) {
-                                "Chat with ${if (currentUserEmail == ticket.submittedBy) "Landlord" else "Contractor"}"
-                            } else {
-                                "Chat with Contractor"
+                            text = when (currentUserRole) {
+                                com.example.mvp.data.UserRole.CONTRACTOR -> tenantEmail.ifEmpty { "Tenant" }
+                                else -> landlordEmail
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)

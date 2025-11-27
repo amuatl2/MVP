@@ -77,5 +77,57 @@ object DateUtils {
             null
         }
     }
+    
+    // Convert 24-hour format (HH:mm) to 12-hour format (h:mm AM/PM)
+    fun formatTime12Hour(time24Hour: String): String {
+        return try {
+            val parts = time24Hour.split(":")
+            if (parts.size < 2) return time24Hour
+            
+            val hour = parts[0].toInt()
+            val minute = parts[1].toInt()
+            
+            val hour12 = when {
+                hour == 0 -> 12
+                hour > 12 -> hour - 12
+                else -> hour
+            }
+            val amPm = if (hour < 12) "AM" else "PM"
+            
+            String.format("%d:%02d %s", hour12, minute, amPm)
+        } catch (e: Exception) {
+            time24Hour // Return original if conversion fails
+        }
+    }
+    
+    // Format timestamp as relative time (e.g., "2 m ago", "1 h ago", "3 d ago")
+    fun formatRelativeTime(timestamp: String): String {
+        return try {
+            val date = dateTimeFormat.parse(timestamp)
+            if (date != null) {
+                val now = Date()
+                val diff = now.time - date.time
+                val seconds = diff / 1000
+                val minutes = seconds / 60
+                val hours = minutes / 60
+                val days = hours / 24
+                
+                when {
+                    seconds < 60 -> "Just now"
+                    minutes < 60 -> "$minutes m ago"
+                    hours < 24 -> "$hours h ago"
+                    days < 7 -> "$days d ago"
+                    else -> {
+                        val displayFormat = SimpleDateFormat("MMM dd", Locale.getDefault())
+                        displayFormat.format(date)
+                    }
+                }
+            } else {
+                timestamp
+            }
+        } catch (e: Exception) {
+            timestamp
+        }
+    }
 }
 

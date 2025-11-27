@@ -3,10 +3,13 @@ package com.example.mvp.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +42,7 @@ fun CreateAccountScreen(
     var companyName by remember { mutableStateOf("") }
     var showStateDropdown by remember { mutableStateOf(false) }
     var showCityDropdown by remember { mutableStateOf(false) }
+    var citySearchQuery by remember { mutableStateOf("") }
     
     // Update cities when state changes
     val availableCities = remember(selectedState) {
@@ -289,49 +293,124 @@ fun CreateAccountScreen(
                     }
                 }
                 
-                // City Dropdown
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedTextField(
-                        value = if (selectedCity.isEmpty()) "Select City *" else selectedCity,
-                        onValueChange = { },
-                        label = { Text("City *") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { 
+                // City Selection - Using a dialog for better scrolling
+                OutlinedTextField(
+                    value = if (selectedCity.isEmpty()) "Select City *" else selectedCity,
+                    onValueChange = { },
+                    label = { Text("City *") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { 
+                            if (selectedState.isNotEmpty()) {
+                                showCityDropdown = true
+                            }
+                        },
+                    readOnly = true,
+                    enabled = selectedState.isNotEmpty(),
+                    placeholder = { Text(if (selectedState.isEmpty()) "Select state first" else "Select City") },
+                    trailingIcon = {
+                        IconButton(
+                            onClick = { 
                                 if (selectedState.isNotEmpty()) {
                                     showCityDropdown = true
                                 }
                             },
-                        readOnly = true,
-                        enabled = selectedState.isNotEmpty(),
-                        placeholder = { Text(if (selectedState.isEmpty()) "Select state first" else "Select City") },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = { 
-                                    if (selectedState.isNotEmpty()) {
-                                        showCityDropdown = true
-                                    }
-                                },
-                                enabled = selectedState.isNotEmpty()
+                            enabled = selectedState.isNotEmpty()
+                        ) {
+                            Text("▼", fontSize = 12.sp)
+                        }
+                    }
+                )
+                
+                // City Selection Dialog
+                if (showCityDropdown && selectedState.isNotEmpty()) {
+                    val filteredCities = remember(citySearchQuery, availableCities) {
+                        if (citySearchQuery.isBlank()) {
+                            availableCities
+                        } else {
+                            availableCities.filter { 
+                                it.contains(citySearchQuery, ignoreCase = true) 
+                            }
+                        }
+                    }
+                    
+                    AlertDialog(
+                        onDismissRequest = { 
+                            showCityDropdown = false
+                            citySearchQuery = ""
+                        },
+                        title = { 
+                            Text(
+                                text = "Select City in $selectedState (${filteredCities.size} cities)",
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        text = {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 500.dp)
                             ) {
-                                Text("▼", fontSize = 12.sp)
+                                // Search bar
+                                OutlinedTextField(
+                                    value = citySearchQuery,
+                                    onValueChange = { citySearchQuery = it },
+                                    label = { Text("Search cities...") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Search,
+                                            contentDescription = "Search"
+                                        )
+                                    },
+                                    singleLine = true
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                // Scrollable city list - Show all cities
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                                ) {
+                                    items(
+                                        count = filteredCities.size,
+                                        key = { index -> filteredCities[index] }
+                                    ) { index ->
+                                        val city = filteredCities[index]
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    selectedCity = city
+                                                    showCityDropdown = false
+                                                    citySearchQuery = ""
+                                                }
+                                                .padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = city,
+                                                style = MaterialTheme.typography.bodyLarge
+                                            )
+                                        }
+                                        if (index < filteredCities.size - 1) {
+                                            HorizontalDivider()
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { 
+                                showCityDropdown = false
+                                citySearchQuery = ""
+                            }) {
+                                Text("Cancel")
                             }
                         }
                     )
-                    DropdownMenu(
-                        expanded = showCityDropdown,
-                        onDismissRequest = { showCityDropdown = false }
-                    ) {
-                        availableCities.forEach { city ->
-                            DropdownMenuItem(
-                                text = { Text(city) },
-                                onClick = {
-                                    selectedCity = city
-                                    showCityDropdown = false
-                                }
-                            )
-                        }
-                    }
                 }
             }
 
