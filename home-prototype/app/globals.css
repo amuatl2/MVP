@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap');
+
+:root {
+  --primary-blue: #3A86FF;
+  --light-gray: #E2E8F0;
+  --dark-gray: #2D3748;
+  --white: #FFFFFF;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  font-family: 'Inter', 'Poppins', system-ui, sans-serif;
+  color: var(--dark-gray);
+  background-color: var(--white);
+}
+
+button {
+  font-family: inherit;
+}
+

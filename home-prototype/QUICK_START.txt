@@ -1,0 +1,17 @@
+====================================
+  INSTALL NODE.JS - QUICK STEPS
+====================================
+
+1. Go to: https://nodejs.org/
+2. Click the BIG GREEN "LTS" button (Long Term Support)
+3. Download and run the installer (.msi file)
+4. Click Next, Next, Install (keep all default settings)
+5. IMPORTANT: Close your PowerShell window completely!
+6. Open a NEW PowerShell window
+7. Navigate back: cd "C:\AMU\GATECH\Semester_5\CS 4803\home-prototype"
+8. Run: npm install
+9. Run: npm run dev
+10. Open browser: http://localhost:3000
+
+====================================
+
