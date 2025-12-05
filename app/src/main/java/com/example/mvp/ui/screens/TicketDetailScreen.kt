@@ -5,11 +5,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mvp.data.Ticket
@@ -23,10 +25,12 @@ fun TicketDetailScreen(
     onBack: () -> Unit,
     onAssignContractor: () -> Unit,
     onScheduleVisit: () -> Unit,
+    onRateJob: (() -> Unit)? = null,
+    onMessageContractor: (() -> Unit)? = null, // New callback for messaging contractor
     userRole: com.example.mvp.data.UserRole,
     currentUserEmail: String? = null,
     currentUserName: String? = null,
-    onAddMessage: ((com.example.mvp.data.Message) -> Unit)? = null
+    tenantUser: com.example.mvp.data.User? = null
 ) {
     Column(
         modifier = Modifier
@@ -63,15 +67,11 @@ fun TicketDetailScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Row(
+        // Main Content - Vertical Layout
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Left Column - Main Content
-            Column(
-                modifier = Modifier.weight(2f),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
                 // Title Section
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -258,6 +258,39 @@ fun TicketDetailScreen(
                     }
                 }
 
+                // Contractor Assignment Notification
+                if (ticket.assignedTo != null && ticket.status != TicketStatus.COMPLETED) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text("✅", fontSize = 32.sp)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Contractor Assigned",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = contractor?.let { "Your job has been picked up by ${it.company} - ${it.name}" } 
+                                        ?: "Your job has been assigned to a contractor",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // AI Diagnosis
                 ticket.aiDiagnosis?.let { diagnosis ->
                     Card(
@@ -290,175 +323,112 @@ fun TicketDetailScreen(
                     }
                 }
 
-                // Communication
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
+            // Details Card - Now below main content
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp)
                 ) {
+                    Text(
+                        text = "Details",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(
-                            text = "Communication",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        var newMessage by remember { mutableStateOf("") }
-                        val messages = ticket.messages
-                        
-                        // Show initial message if no messages exist
-                        if (messages.isEmpty()) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(12.dp)
-                                ) {
-                                    Text(
-                                        text = "Tenant: Issue reported. Please address as soon as possible.",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = ticket.createdAt.split("T").firstOrNull() ?: "",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                        
-                        messages.forEach { message ->
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(12.dp)
-                                ) {
-                                    Text(
-                                        text = "${message.senderName}: ${message.text}",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = message.timestamp,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                        
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            OutlinedTextField(
-                                value = newMessage,
-                                onValueChange = { newMessage = it },
-                                placeholder = { Text("Type a message...") },
-                                modifier = Modifier.weight(1f)
+                            Text(
+                                text = "Reported By",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
-                            Button(
-                                onClick = {
-                                    if (newMessage.isNotBlank() && onAddMessage != null && currentUserEmail != null) {
-                                        val message = com.example.mvp.data.Message(
-                                            id = "msg-${System.currentTimeMillis()}",
-                                            text = newMessage,
-                                            senderEmail = currentUserEmail,
-                                            senderName = currentUserName ?: "User",
-                                            timestamp = com.example.mvp.utils.DateUtils.getCurrentDateTimeString()
-                                        )
-                                        onAddMessage(message)
-                                        newMessage = ""
-                                    }
-                                },
-                                enabled = newMessage.isNotBlank() && onAddMessage != null
-                            ) {
-                                Text("Send")
-                            }
+                            Text(
+                                text = ticket.submittedBy,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
                         }
-                    }
-                }
-            }
-
-            // Right Column - Details and Actions
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // Details Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp)
-                    ) {
-                        Text(
-                            text = "Details",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
+                        HorizontalDivider()
+                        // Show tenant address for landlords
+                        if (userRole == com.example.mvp.data.UserRole.LANDLORD && tenantUser != null) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Reported By",
+                                    text = "Address",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
-                                Text(
-                                    text = ticket.submittedBy,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalAlignment = Alignment.End
+                                ) {
+                                    tenantUser.address?.let {
+                                        Text(
+                                            text = it,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    if (tenantUser.city != null && tenantUser.state != null) {
+                                        Text(
+                                            text = "${tenantUser.city}, ${tenantUser.state}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                             }
                             HorizontalDivider()
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Created",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                                Text(
-                                    text = ticket.createdDate ?: ticket.createdAt.split("T").firstOrNull() ?: "",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Created",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                text = ticket.createdDate ?: ticket.createdAt.split("T").firstOrNull() ?: "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        // Show contractor assignment info
+                        if (ticket.assignedTo != null) {
                             contractor?.let {
                                 HorizontalDivider()
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
                                         text = "Contractor",
@@ -468,28 +438,154 @@ fun TicketDetailScreen(
                                     Text(
                                         text = "${it.company} - ${it.name}",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                }
+                            } ?: run {
+                                HorizontalDivider()
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Contractor",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    )
+                                    Text(
+                                        text = "Assigned",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }
                         }
-                    }
-                }
-
-                // Action Buttons
-                if (userRole == com.example.mvp.data.UserRole.LANDLORD) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        if (ticket.assignedTo == null) {
-                            Button(
-                                onClick = onAssignContractor,
-                                modifier = Modifier.fillMaxWidth()
+                        
+                        // Show scheduled date if available
+                        ticket.scheduledDate?.let { scheduledDate ->
+                            HorizontalDivider()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Assign Contractor")
+                                Text(
+                                    text = "Scheduled For",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                                Text(
+                                    text = scheduledDate,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
+                        
+                        // Show completion date if available
+                        ticket.completedDate?.let { completedDate ->
+                            HorizontalDivider()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Completed",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                                Text(
+                                    text = completedDate,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Action Buttons - Now below details
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Tenant-specific actions
+                if (userRole == com.example.mvp.data.UserRole.TENANT) {
+                    when (ticket.status) {
+                        TicketStatus.ASSIGNED, TicketStatus.SCHEDULED -> {
+                            // Message Contractor button - always show, but disabled if no contractor assigned
+                            OutlinedButton(
+                                onClick = onMessageContractor ?: {},
+                                enabled = ticket.assignedTo != null && onMessageContractor != null,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Email, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Message Contractor")
+                            }
+                        }
+                        TicketStatus.COMPLETED -> {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                onRateJob?.let { rateJob ->
+                                    Button(
+                                        onClick = rateJob,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Rate Job")
+                                    }
+                                }
+                                // Message Contractor button - always show, but disabled if no contractor assigned
+                                OutlinedButton(
+                                    onClick = onMessageContractor ?: {},
+                                    enabled = ticket.assignedTo != null && onMessageContractor != null,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Default.Email, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Message Contractor")
+                                }
+                            }
+                        }
+                        else -> {
+                            // Message Contractor button - always show, but disabled when ticket not assigned
+                            OutlinedButton(
+                                onClick = {},
+                                enabled = false,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Email, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Message Contractor")
+                            }
+                        }
+                    }
+                }
+                
+                // Landlord-specific actions
+                if (userRole == com.example.mvp.data.UserRole.LANDLORD) {
+                    if (ticket.assignedTo == null) {
+                        Button(
+                            onClick = onAssignContractor,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Assign Contractor")
+                        }
+                    }
+                    if (ticket.assignedTo != null && ticket.status != TicketStatus.SCHEDULED && ticket.status != TicketStatus.COMPLETED) {
                         OutlinedButton(
                             onClick = onScheduleVisit,
                             modifier = Modifier.fillMaxWidth()

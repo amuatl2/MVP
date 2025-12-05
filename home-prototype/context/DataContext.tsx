@@ -15,6 +15,7 @@ export interface Ticket {
   createdAt: string
   scheduledDate?: string
   completedDate?: string
+  rating?: number
 }
 
 export interface Contractor {

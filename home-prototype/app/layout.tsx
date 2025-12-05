@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { AuthProvider } from '@/context/AuthContext'
 import { DataProvider } from '@/context/DataContext'
+import LayoutWrapper from '@/components/LayoutWrapper'
 
 export const metadata: Metadata = {
   title: 'HOME - Housing Operations & Maintenance Engine',
@@ -18,7 +19,9 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <DataProvider>
-            {children}
+            <LayoutWrapper>
+              {children}
+            </LayoutWrapper>
           </DataProvider>
         </AuthProvider>
       </body>

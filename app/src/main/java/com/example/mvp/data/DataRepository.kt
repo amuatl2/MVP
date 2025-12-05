@@ -19,6 +19,7 @@ class DataRepository(private val context: Context) {
     private fun ticketsKey(userEmail: String) = stringPreferencesKey("tickets_$userEmail")
     private fun jobsKey(userEmail: String) = stringPreferencesKey("jobs_$userEmail")
     private val currentUserKey = stringPreferencesKey("current_user")
+    private val lastViewedTimestampsKey = stringPreferencesKey("last_viewed_timestamps")
     
     // Save current user
     suspend fun saveCurrentUser(user: User) {
@@ -150,6 +151,24 @@ class DataRepository(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences.remove(ticketsKey(userEmail))
             preferences.remove(jobsKey(userEmail))
+        }
+    }
+    
+    // Save last viewed timestamps for messages
+    suspend fun saveLastViewedTimestamps(timestamps: Map<String, String>) {
+        context.dataStore.edit { preferences ->
+            preferences[lastViewedTimestampsKey] = gson.toJson(timestamps)
+        }
+    }
+    
+    // Get last viewed timestamps for messages
+    suspend fun getLastViewedTimestamps(): Map<String, String> {
+        val timestampsJson = context.dataStore.data.first()[lastViewedTimestampsKey] ?: return emptyMap()
+        return try {
+            val mapType = object : TypeToken<Map<String, String>>() {}.type
+            gson.fromJson(timestampsJson, mapType) ?: emptyMap()
+        } catch (e: Exception) {
+            emptyMap()
         }
     }
 }

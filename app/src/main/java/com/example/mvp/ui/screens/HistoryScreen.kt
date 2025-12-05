@@ -25,18 +25,61 @@ fun HistoryScreen(
     tickets: List<Ticket>,
     jobs: List<Job>,
     contractors: List<Contractor>,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    currentUserRole: com.example.mvp.data.UserRole? = null,
+    currentContractorId: String? = null
 ) {
     var filterCategory by remember { mutableStateOf("") }
     var filterStatus by remember { mutableStateOf("") }
     var showCategoryDropdown by remember { mutableStateOf(false) }
     var showStatusDropdown by remember { mutableStateOf(false) }
 
-    val allTickets = tickets
-    val completedTickets = tickets.filter { it.status == TicketStatus.COMPLETED }
-    val totalTickets = allTickets.size
+    // For contractors, filter to only their jobs
+    val isContractor = currentUserRole == com.example.mvp.data.UserRole.CONTRACTOR
+    val isLandlord = currentUserRole == com.example.mvp.data.UserRole.LANDLORD
+    val isTenant = currentUserRole == com.example.mvp.data.UserRole.TENANT
+    val contractorJobs = if (isContractor && currentContractorId != null) {
+        jobs.filter { it.contractorId == currentContractorId }
+    } else {
+        jobs
+    }
     
-    val avgRating = if (completedTickets.isNotEmpty()) {
+    // For landlords: use all tickets (not filtered by connection status)
+    // For contractors: filter to only their jobs
+    val contractorTickets = if (isContractor && currentContractorId != null) {
+        tickets.filter { ticket ->
+            contractorJobs.any { it.ticketId == ticket.id }
+        }
+    } else {
+        // For landlords and others, use all tickets passed in
+        tickets
+    }
+    
+    val allTickets = contractorTickets
+    val completedTickets = allTickets.filter { it.status == TicketStatus.COMPLETED }
+    
+    // For landlords: total = all tickets ever received, done = completed tickets
+    // For contractors: total = jobs assigned, done = completed jobs
+    // For tenants: total = all tickets they've submitted, done = completed tickets
+    val totalTickets = when {
+        isLandlord -> allTickets.size // Total tickets ever received (all tickets from their tenants)
+        isTenant -> allTickets.size // Total tickets the tenant has submitted
+        else -> contractorJobs.size // Total jobs assigned to contractor
+    }
+    val completedJobs = when {
+        isLandlord -> completedTickets.size // Completed tickets
+        isTenant -> completedTickets.size // Completed tickets the tenant has submitted
+        else -> contractorJobs.filter { it.status == "completed" }.size // Completed jobs
+    }
+    
+    // Get contractor rating
+    val contractor = if (isContractor && currentContractorId != null) {
+        contractors.find { it.id == currentContractorId }
+    } else {
+        null
+    }
+    
+    val avgRating = contractor?.rating?.toDouble() ?: if (completedTickets.isNotEmpty()) {
         val ratings = completedTickets.mapNotNull { it.rating }
         if (ratings.isNotEmpty()) {
             ratings.average()
@@ -49,21 +92,47 @@ fun HistoryScreen(
     
     val reviewCount = completedTickets.count { it.rating != null }
     
-    val avgDuration = if (completedTickets.isNotEmpty()) {
-        completedTickets.size * 2.5
-    } else {
-        0.0
-    }
+    // Current Jobs (active jobs)
+    val currentJobs = contractorJobs.filter { it.status != "completed" }.size
 
-    val categories = tickets.map { it.category }.distinct().sorted()
+    val categories = com.example.mvp.data.JobTypes.ALL_TYPES
     val statuses = listOf("submitted", "assigned", "scheduled", "completed")
 
     val filteredTickets = allTickets.filter { ticket ->
         (filterCategory.isEmpty() || ticket.category == filterCategory) &&
         (filterStatus.isEmpty() || ticket.status.name.lowercase() == filterStatus.lowercase())
-    }
+    }.sortedWith(compareByDescending<Ticket> { ticket ->
+        // Non-completed tickets first (higher priority)
+        ticket.status != TicketStatus.COMPLETED
+    }.thenBy { ticket ->
+        // For non-completed tickets, sort by status: SUBMITTED (least done) -> ASSIGNED -> SCHEDULED
+        when (ticket.status) {
+            TicketStatus.SUBMITTED -> 1
+            TicketStatus.ASSIGNED -> 2
+            TicketStatus.SCHEDULED -> 3
+            TicketStatus.COMPLETED -> 4
+        }
+    }.thenBy { ticket ->
+        // Completed tickets sorted by completion date (least recent first = lower timestamp)
+        when {
+            ticket.status == TicketStatus.COMPLETED -> {
+                // Parse completion date for sorting (least recent at top)
+                val completionDate = ticket.completedDate ?: ticket.createdAt
+                try {
+                    // Try to parse date - least recent dates have lower values
+                    val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    val dateStr = completionDate.split("T").firstOrNull() ?: completionDate.split(" ").firstOrNull() ?: ""
+                    val date = dateFormat.parse(dateStr)
+                    -(date?.time ?: 0L) // Negative to sort least recent first
+                } catch (e: Exception) {
+                    0L
+                }
+            }
+            else -> 0L // Non-completed tickets maintain their order
+        }
+    })
 
-    val categoryCounts = tickets.groupingBy { it.category }.eachCount()
+    val categoryCounts = contractorTickets.groupingBy { it.category }.eachCount()
     val maxCategoryCount = categoryCounts.values.maxOrNull() ?: 1
 
     Scaffold(
@@ -95,7 +164,7 @@ fun HistoryScreen(
                 )
             }
 
-            // Metrics Cards - 2x2 Grid
+            // Metrics Cards - 2x2 Grid for contractors, 2 cards for landlords
             item {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -172,14 +241,14 @@ fun HistoryScreen(
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "${completedTickets.size}",
+                                    text = "$completedJobs",
                                     style = MaterialTheme.typography.displayMedium,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 32.sp
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 val completionRate = if (totalTickets > 0) {
-                                    (completedTickets.size * 100 / totalTickets)
+                                    (completedJobs * 100 / totalTickets)
                                 } else {
                                     0
                                 }
@@ -195,93 +264,96 @@ fun HistoryScreen(
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Avg. Rating
-                        Card(
-                            modifier = Modifier.weight(1f),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    // Only show Rating and Current Jobs for contractors
+                    if (isContractor) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top
-                                ) {
+                            // Avg. Rating
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Text(
+                                            text = "Rating",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text("⭐", fontSize = 20.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
                                     Text(
-                                        text = "Rating",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp,
+                                        text = String.format("%.1f/5.0", avgRating),
+                                        style = MaterialTheme.typography.displayMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 32.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "From $reviewCount review${if (reviewCount != 1) "s" else ""}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        fontSize = 11.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Text("⭐", fontSize = 20.sp)
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = String.format("%.1f/5.0", avgRating),
-                                    style = MaterialTheme.typography.displayMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 32.sp
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "From $reviewCount review${if (reviewCount != 1) "s" else ""}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
-                        }
 
-                        // Avg. Duration
-                        Card(
-                            modifier = Modifier.weight(1f),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top
-                                ) {
+                            // Current Jobs
+                            Card(
+                                modifier = Modifier.weight(1f),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Text(
+                                            text = "Current Jobs",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text("💼", fontSize = 20.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
                                     Text(
-                                        text = "Duration",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp,
+                                        text = "$currentJobs",
+                                        style = MaterialTheme.typography.displayMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 32.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Active assignments",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        fontSize = 11.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    Text("🕐", fontSize = 20.sp)
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = String.format("%.1f", avgDuration),
-                                    style = MaterialTheme.typography.displayMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 32.sp
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Days to completion",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
                         }
                     }

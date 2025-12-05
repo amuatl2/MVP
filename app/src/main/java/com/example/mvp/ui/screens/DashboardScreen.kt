@@ -3,8 +3,15 @@ package com.example.mvp.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -14,14 +21,35 @@ import com.example.mvp.data.Ticket
 import com.example.mvp.data.TicketStatus
 import com.example.mvp.data.UserRole
 import com.example.mvp.data.Job
+import com.example.mvp.data.JobInvitation
+import com.example.mvp.data.ContractorLandlordMessage
+import com.example.mvp.data.User
 
 @Composable
 fun TenantDashboardScreen(
     tickets: List<Ticket>,
+    jobs: List<Job> = emptyList(), // Add jobs parameter
     onCreateTicket: () -> Unit,
-    onTicketClick: (String) -> Unit
+    onTicketClick: (String) -> Unit,
+    onLeaveReview: (String) -> Unit // Add callback for leaving review
 ) {
-    val myTickets = tickets.filter { it.status == com.example.mvp.data.TicketStatus.SUBMITTED || it.status == com.example.mvp.data.TicketStatus.ASSIGNED }
+    // Sort tickets: Open tickets first (SUBMITTED -> ASSIGNED -> SCHEDULED), then completed at bottom
+    val sortedTickets = tickets.sortedWith(compareBy<Ticket> { ticket ->
+        when (ticket.status) {
+            TicketStatus.COMPLETED -> 4 // Completed goes to bottom
+            TicketStatus.SUBMITTED -> 1 // Least done
+            TicketStatus.ASSIGNED -> 2
+            TicketStatus.SCHEDULED -> 3
+        }
+    })
+    
+    val openTickets = sortedTickets.filter { it.status != TicketStatus.COMPLETED }
+    // Only show completed tickets that don't have a rating yet (haven't been reviewed)
+    // Show all completed tickets without ratings - they can be reviewed
+    val completedTickets = sortedTickets.filter { ticket ->
+        ticket.status == TicketStatus.COMPLETED && 
+        (ticket.rating == null || ticket.rating == 0f)
+    }
     
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -80,56 +108,276 @@ fun TenantDashboardScreen(
             }
         }
 
-        item {
-            Text(
-                text = "My Tickets",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold
-            )
+        // Open Tickets Section
+        if (openTickets.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Open Tickets",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            
+            items(openTickets) { ticket ->
+                TicketCardWithTimeline(
+                    ticket = ticket,
+                    onClick = { onTicketClick(ticket.id) }
+                )
+            }
         }
 
-        items(myTickets.take(5)) { ticket ->
-            Card(
-                onClick = { onTicketClick(ticket.id) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
+        // Completed Tickets Section
+        if (completedTickets.isNotEmpty()) {
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Completed Tickets",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            
+            items(completedTickets) { ticket ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
                 ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TicketCardWithTimeline(
+                            ticket = ticket,
+                            onClick = { onTicketClick(ticket.id) }
+                        )
+                        
+                        // Leave Review Button
+                        Button(
+                            onClick = { onLeaveReview(ticket.id) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = null
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Leave Review")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Empty State
+        if (tickets.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("📋", fontSize = 48.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "No tickets yet. Report your first maintenance issue!",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TicketCardWithTimeline(
+    ticket: Ticket,
+    onClick: () -> Unit
+) {
+    val statuses = listOf(
+        TicketStatus.SUBMITTED,
+        TicketStatus.ASSIGNED,
+        TicketStatus.SCHEDULED,
+        TicketStatus.COMPLETED
+    )
+    val currentIndex = statuses.indexOf(ticket.status).coerceAtLeast(0)
+    
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Ticket Title and Category
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = ticket.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = ticket.description.take(100) + if (ticket.description.length > 100) "..." else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = ticket.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = ticket.category,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
                         Surface(
-                            color = when (ticket.status) {
-                                com.example.mvp.data.TicketStatus.COMPLETED -> MaterialTheme.colorScheme.tertiaryContainer
-                                com.example.mvp.data.TicketStatus.ASSIGNED -> MaterialTheme.colorScheme.primaryContainer
-                                else -> MaterialTheme.colorScheme.secondaryContainer
-                            },
+                            color = MaterialTheme.colorScheme.primaryContainer,
                             shape = MaterialTheme.shapes.small
                         ) {
                             Text(
-                                text = ticket.status.name.lowercase(),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                text = ticket.category,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
+                        ticket.priority?.let {
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = MaterialTheme.shapes.small
+                            ) {
+                                Text(
+                                    text = it,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
                     }
+                }
+                Surface(
+                    color = when (ticket.status) {
+                        TicketStatus.COMPLETED -> MaterialTheme.colorScheme.tertiaryContainer
+                        TicketStatus.ASSIGNED -> MaterialTheme.colorScheme.primaryContainer
+                        TicketStatus.SCHEDULED -> MaterialTheme.colorScheme.secondaryContainer
+                        else -> MaterialTheme.colorScheme.errorContainer
+                    },
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text(
+                        text = ticket.status.name.lowercase().replaceFirstChar { it.uppercase() },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Timeline View
+            Text(
+                text = "Status Timeline",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Horizontal Timeline
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                statuses.forEachIndexed { index, status ->
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Status Circle
+                        Surface(
+                            color = if (index <= currentIndex)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant,
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (index < currentIndex) {
+                                    Text("✓", 
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                } else if (index == currentIndex) {
+                                    Text("•", 
+                                        fontSize = 16.sp,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                } else {
+                                    Text("○", 
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // Connection Line (after circle, except for last item)
+                        if (index < statuses.size - 1) {
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(2.dp)
+                                    .padding(horizontal = 4.dp),
+                                color = if (index < currentIndex)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.surfaceVariant
+                            ) {}
+                        }
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Status Labels Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                statuses.forEachIndexed { index, status ->
+                    Text(
+                        text = status.name.lowercase().replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 9.sp,
+                        modifier = Modifier.weight(1f),
+                        color = if (index <= currentIndex)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
                 }
             }
         }
@@ -139,14 +387,76 @@ fun TenantDashboardScreen(
 @Composable
 fun LandlordDashboardScreen(
     tickets: List<Ticket>,
+    acceptedInvitations: List<com.example.mvp.data.JobInvitation> = emptyList(),
+    allInvitations: List<com.example.mvp.data.JobInvitation> = emptyList(),
     onTicketClick: (String) -> Unit,
     onAIDiagnosis: () -> Unit,
-    onMarketplace: () -> Unit
+    onMarketplace: () -> Unit,
+    onChatWithContractor: ((String) -> Unit)? = null,
+    tenantUsers: Map<String, com.example.mvp.data.User> = emptyMap()
 ) {
-    val openTickets = tickets.filter { it.status != com.example.mvp.data.TicketStatus.COMPLETED }
-    val needsAssignment = tickets.filter { it.status == com.example.mvp.data.TicketStatus.SUBMITTED }
-    val inProgress = tickets.filter { it.status == com.example.mvp.data.TicketStatus.ASSIGNED || it.status == com.example.mvp.data.TicketStatus.SCHEDULED }
-    val aiDiagnosisTickets = tickets.filter { it.aiDiagnosis != null && it.status == com.example.mvp.data.TicketStatus.SUBMITTED }
+    var selectedTab by remember { mutableStateOf("All Tickets") }
+    var searchQuery by remember { mutableStateOf("") }
+    
+    // Get ticket IDs that have any invitation (pending or accepted)
+    val ticketsWithInvitations = remember(allInvitations) {
+        allInvitations.map { it.ticketId }.toSet()
+    }
+    
+    // Needs Assignment = SUBMITTED tickets that haven't been assigned to a contractor yet
+    // (no invitations/applications and assignedTo is null)
+    // This ensures tickets don't appear in both "Needs Assignment" and "Assignment Pending"
+    val needsAssignment = tickets.filter { 
+        it.status == com.example.mvp.data.TicketStatus.SUBMITTED && 
+        it.assignedTo == null &&
+        it.id !in ticketsWithInvitations
+    }
+    // Assignment Pending = SUBMITTED tickets that have any invitation (pending or accepted)
+    // Takes priority over "Needs Assignment" - if a ticket has an invitation, it's in "Assignment Pending"
+    val assignmentPending = tickets.filter { 
+        it.status == com.example.mvp.data.TicketStatus.SUBMITTED && 
+        it.id in ticketsWithInvitations
+    }
+    val inProgress = tickets.filter { 
+        it.status == com.example.mvp.data.TicketStatus.ASSIGNED || 
+        it.status == com.example.mvp.data.TicketStatus.SCHEDULED 
+    }
+    val completed = tickets.filter { 
+        it.status == com.example.mvp.data.TicketStatus.COMPLETED 
+    }
+    val aiDiagnosisTickets = tickets.filter { 
+        it.aiDiagnosis != null && it.status == com.example.mvp.data.TicketStatus.SUBMITTED 
+    }
+    
+    val displayedTickets = when (selectedTab) {
+        "All Tickets" -> tickets
+        "Needs Assignment" -> needsAssignment
+        "Assignment Pending" -> assignmentPending
+        "In Progress" -> inProgress
+        "Completed" -> completed
+        else -> tickets
+    }
+    
+    val filteredTickets = if (searchQuery.isBlank()) {
+        displayedTickets
+    } else {
+        displayedTickets.filter { ticket ->
+            ticket.title.contains(searchQuery, ignoreCase = true) ||
+            ticket.description.contains(searchQuery, ignoreCase = true) ||
+            ticket.category.contains(searchQuery, ignoreCase = true)
+        }
+    }.sortedWith(compareByDescending<Ticket> { ticket ->
+        // Non-completed tickets first (higher priority)
+        ticket.status != com.example.mvp.data.TicketStatus.COMPLETED
+    }.thenBy { ticket ->
+        // Then sort by status: SUBMITTED (least done) -> ASSIGNED -> SCHEDULED -> COMPLETED (most done)
+        when (ticket.status) {
+            com.example.mvp.data.TicketStatus.SUBMITTED -> 1
+            com.example.mvp.data.TicketStatus.ASSIGNED -> 2
+            com.example.mvp.data.TicketStatus.SCHEDULED -> 3
+            com.example.mvp.data.TicketStatus.COMPLETED -> 4
+        }
+    })
     
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -170,97 +480,139 @@ fun LandlordDashboardScreen(
         }
 
         item {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Open Tickets Card
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
+                // Top Row: Needs Assignment (left) and Assignment Pending (right)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                    // Needs Assignment Card (Top Left)
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
                     ) {
-                        Text(
-                            text = "Open Tickets",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Medium
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Needs Assignment",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "${needsAssignment.size}",
+                                style = MaterialTheme.typography.displayMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Awaiting contractor",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+
+                    // Assignment Pending Card (Top Right)
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "${openTickets.size}",
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Requires attention",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Assignment Pending",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "${assignmentPending.size}",
+                                style = MaterialTheme.typography.displayMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Invitation accepted",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
                     }
                 }
 
-                // Needs Assignment Card
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
+                // Bottom Row: In Progress (left) and Completed (right)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                    // In Progress Card (Bottom Left)
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
                     ) {
-                        Text(
-                            text = "Needs Assignment",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "${needsAssignment.size}",
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Awaiting contractor",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = "In Progress",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "${inProgress.size}",
+                                style = MaterialTheme.typography.displayMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Currently being handled",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
                     }
-                }
 
-                // In Progress Card
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                    // Completed Card (Bottom Right)
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
                     ) {
-                        Text(
-                            text = "In Progress",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "${inProgress.size}",
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Currently being handled",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Completed",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "${completed.size}",
+                                style = MaterialTheme.typography.displayMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Work finished",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
                     }
                 }
             }
@@ -329,33 +681,41 @@ fun LandlordDashboardScreen(
                                             }
                                         }
                                         Surface(
-                                            color = MaterialTheme.colorScheme.secondaryContainer,
+                                            color = when (ticket.status) {
+                                                com.example.mvp.data.TicketStatus.SUBMITTED -> 
+                                                    if (ticket.id in ticketsWithInvitations)
+                                                        MaterialTheme.colorScheme.secondaryContainer
+                                                    else
+                                                        MaterialTheme.colorScheme.tertiaryContainer
+                                                com.example.mvp.data.TicketStatus.ASSIGNED -> 
+                                                    MaterialTheme.colorScheme.primaryContainer
+                                                com.example.mvp.data.TicketStatus.SCHEDULED -> 
+                                                    MaterialTheme.colorScheme.primaryContainer
+                                                com.example.mvp.data.TicketStatus.COMPLETED -> 
+                                                    MaterialTheme.colorScheme.surfaceVariant
+                                            },
                                             shape = MaterialTheme.shapes.small
                                         ) {
                                             Text(
-                                                text = ticket.status.name.lowercase(),
+                                                text = when (ticket.status) {
+                                                    com.example.mvp.data.TicketStatus.SUBMITTED -> 
+                                                        if (ticket.id in ticketsWithInvitations) "Assignment Pending" 
+                                                        else "Needs Assignment"
+                                                    com.example.mvp.data.TicketStatus.ASSIGNED -> "In Progress"
+                                                    com.example.mvp.data.TicketStatus.SCHEDULED -> "In Progress"
+                                                    com.example.mvp.data.TicketStatus.COMPLETED -> "Completed"
+                                                },
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                                 style = MaterialTheme.typography.labelSmall
                                             )
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    Button(
+                                        onClick = { onTicketClick(ticket.id) },
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Button(
-                                            onClick = { onTicketClick(ticket.id) },
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Text("View Details", fontSize = 12.sp)
-                                        }
-                                        OutlinedButton(
-                                            onClick = { onMarketplace() },
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Text("Assign Contractor", fontSize = 12.sp)
-                                        }
+                                        Text("View Details", fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -365,125 +725,176 @@ fun LandlordDashboardScreen(
             }
         }
 
-        // All Maintenance Requests Section
+        // Tabs and Search Section
         item {
-            Card(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp)
-                ) {
-                    Text(
-                        text = "All Maintenance Requests",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Complete overview of property maintenance",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                }
-            }
-        }
-
-        items(if (openTickets.isEmpty()) listOf(null) else openTickets) { ticket ->
-            if (ticket == null) {
-                // Empty state
-                Card(
+                // Tabs
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Tab(
+                        selected = selectedTab == "All Tickets",
+                        onClick = { selectedTab = "All Tickets" },
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Text("📋", fontSize = 48.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "No tickets yet. Report your first maintenance issue!",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+                        Text("All Tickets", fontSize = 12.sp)
+                    }
+                    Tab(
+                        selected = selectedTab == "Needs Assignment",
+                        onClick = { selectedTab = "Needs Assignment" },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Needs Assignment", fontSize = 12.sp)
+                    }
+                    Tab(
+                        selected = selectedTab == "Assignment Pending",
+                        onClick = { selectedTab = "Assignment Pending" },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Assignment Pending", fontSize = 12.sp)
+                    }
+                    Tab(
+                        selected = selectedTab == "In Progress",
+                        onClick = { selectedTab = "In Progress" },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("In Progress", fontSize = 12.sp)
+                    }
+                    Tab(
+                        selected = selectedTab == "Completed",
+                        onClick = { selectedTab = "Completed" },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Completed", fontSize = 12.sp)
                     }
                 }
-                return@items
+                
+                // Search
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search tickets...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = {
+                        Icon(androidx.compose.material.icons.Icons.Default.Search, contentDescription = "Search")
+                    }
+                )
             }
+        }
+        
+        // Tickets List in Scrollable Box
+        item {
             Card(
-                onClick = { onTicketClick(ticket.id) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(400.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxSize()
                         .padding(16.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = ticket.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = ticket.description.take(80) + if (ticket.description.length > 80) "..." else "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = MaterialTheme.shapes.small
-                                ) {
-                                    Text(
-                                        text = ticket.category,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                }
-                                Text(
-                                    text = ticket.createdAt.split("T").firstOrNull() ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Surface(
-                            color = when (ticket.status) {
-                                com.example.mvp.data.TicketStatus.COMPLETED -> MaterialTheme.colorScheme.tertiaryContainer
-                                com.example.mvp.data.TicketStatus.ASSIGNED -> MaterialTheme.colorScheme.primaryContainer
-                                else -> MaterialTheme.colorScheme.secondaryContainer
-                            },
-                            shape = MaterialTheme.shapes.small
+                    Text(
+                        text = selectedTab,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (filteredTickets.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = ticket.status.name.lowercase(),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelSmall
+                                text = "No tickets found",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
+                        }
+                    } else {
+                        androidx.compose.foundation.lazy.LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(filteredTickets) { ticket ->
+                                val tenantUser = tenantUsers[ticket.submittedBy]
+                                Card(
+                                    onClick = {
+                                        onTicketClick(ticket.id)
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = ticket.title,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                        Text(
+                                            text = ticket.description.take(60) + if (ticket.description.length > 60) "..." else "",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 1
+                                        )
+                                        tenantUser?.let { user ->
+                                            if (user.address != null || (user.city != null && user.state != null)) {
+                                                Text(
+                                                    text = "${user.address ?: ""}${if (user.address != null && user.city != null) ", " else ""}${user.city ?: ""}${if (user.city != null && user.state != null) ", " else ""}${user.state ?: ""}".trimStart(',').trimStart(' '),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                                    maxLines = 1,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.primaryContainer,
+                                                shape = MaterialTheme.shapes.small
+                                            ) {
+                                                Text(
+                                                    text = ticket.category,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                            if (ticket.assignedTo != null) {
+                                                Text(
+                                                    text = "Tap to chat",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -496,27 +907,87 @@ fun LandlordDashboardScreen(
 fun ContractorDashboardScreen(
     jobs: List<Job>,
     tickets: List<Ticket> = emptyList(),
+    invitations: List<com.example.mvp.data.JobInvitation> = emptyList(),
+    contractor: com.example.mvp.data.Contractor? = null, // Add contractor parameter
+    tenantUsers: Map<String, com.example.mvp.data.User> = emptyMap(), // Add tenant users parameter
     onJobClick: (String) -> Unit,
-    onApplyToJob: ((String) -> Unit)? = null
+    onAcceptInvitation: ((String) -> Unit)? = null,
+    onDeclineInvitation: ((String) -> Unit)? = null,
+    onServiceClick: (() -> Unit)? = null
 ) {
     val activeJobs = jobs.filter { it.status != "completed" }
+        .sortedWith(compareBy<Job> { job ->
+            // Sort by status: assigned (1) comes before scheduled (2)
+            when (job.status.lowercase()) {
+                "assigned" -> 1
+                "scheduled" -> 2
+                else -> 3
+            }
+        })
     val completedJobs = jobs.filter { it.status == "completed" }
     
-    // Calculate average rating from completed jobs
-    val avgRating = if (completedJobs.isNotEmpty()) {
-        val ratings = completedJobs.mapNotNull { it.rating }
-        if (ratings.isNotEmpty()) {
-            ratings.average()
+    // Calculate rating: Always calculate from tickets to ensure accuracy
+    // Only count tickets that are completed AND have ratings > 0 (same logic as ViewModel)
+    // IMPORTANT: Also depend on contractor object itself to recalculate when contractor loads
+    val avgRating = remember(tickets, contractor?.id, contractor) {
+        val contractorId = contractor?.id
+        if (contractorId != null && tickets.isNotEmpty()) {
+            // Get all tickets assigned to this contractor
+            val contractorTickets = tickets.filter { 
+                it.assignedContractor == contractorId || it.assignedTo == contractorId
+            }
+            
+            // Get only COMPLETED tickets that have been reviewed (have ratings > 0)
+            // This matches the logic in recalculateContractorRating
+            val ratedCompletedTickets = contractorTickets.filter { 
+                it.status == com.example.mvp.data.TicketStatus.COMPLETED &&
+                it.rating != null && 
+                it.rating!! > 0f
+            }
+            
+            if (ratedCompletedTickets.isNotEmpty()) {
+                val ratings = ratedCompletedTickets.mapNotNull { it.rating }
+                ratings.average()
+            } else {
+                0.0
+            }
         } else {
-            4.8 // Default rating if no ratings yet
+            0.0 // No contractor ID or tickets not loaded yet
         }
-    } else {
-        4.8
     }
     
-    // Available jobs (unassigned tickets that match contractor's expertise)
-    val availableJobs = tickets.filter { it.assignedTo == null && it.status == TicketStatus.SUBMITTED }
+    // Get tickets for invitations
+    val invitationTickets = invitations.mapNotNull { invitation ->
+        tickets.find { it.id == invitation.ticketId }
+    }
     
+    ContractorDashboardContent(
+        activeJobs = activeJobs,
+        completedJobs = completedJobs,
+        avgRating = avgRating,
+        invitations = invitations,
+        invitationTickets = invitationTickets,
+        tenantUsers = tenantUsers,
+        onJobClick = onJobClick,
+        onAcceptInvitation = onAcceptInvitation,
+        onDeclineInvitation = onDeclineInvitation,
+        onServiceClick = onServiceClick
+    )
+}
+
+@Composable
+private fun ContractorDashboardContent(
+    activeJobs: List<Job>,
+    completedJobs: List<Job>,
+    avgRating: Double,
+    invitations: List<com.example.mvp.data.JobInvitation>,
+    invitationTickets: List<Ticket>,
+    tenantUsers: Map<String, com.example.mvp.data.User> = emptyMap(), // Add tenant users parameter
+    onJobClick: (String) -> Unit,
+    onAcceptInvitation: ((String) -> Unit)?,
+    onDeclineInvitation: ((String) -> Unit)?,
+    onServiceClick: (() -> Unit)?
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -536,187 +1007,236 @@ fun ContractorDashboardScreen(
             )
         }
 
-        // Summary Cards
+        // Summary Cards - 2x2 Grid
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(2),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.height(400.dp)
             ) {
                 // Active Jobs
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top
+                        Column(
+                            modifier = Modifier.padding(16.dp)
                         ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(
+                                    text = "Active Jobs",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text("💼", fontSize = 20.sp)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Active Jobs",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Medium
+                                text = "${activeJobs.size}",
+                                style = MaterialTheme.typography.displaySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
-                            Text("💼", fontSize = 20.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Currently assigned",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "${activeJobs.size}",
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Currently assigned",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
                     }
                 }
                 
                 // Completed
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top
+                        Column(
+                            modifier = Modifier.padding(16.dp)
                         ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(
+                                    text = "Completed",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text("✓", fontSize = 20.sp)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Completed",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Medium
+                                text = "${completedJobs.size}",
+                                style = MaterialTheme.typography.displaySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.tertiary
                             )
-                            Text("✓", fontSize = 20.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Total jobs finished",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "${completedJobs.size}",
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Total jobs finished",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
                     }
                 }
                 
                 // Rating
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top
+                        Column(
+                            modifier = Modifier.padding(16.dp)
                         ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(
+                                    text = "Rating",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text("⭐", fontSize = 20.sp)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Rating",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Medium
+                                text = String.format("%.1f/5.0", avgRating),
+                                style = MaterialTheme.typography.displaySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
-                            Text("⭐", fontSize = 20.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Average customer rating",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = String.format("%.1f/5.0", avgRating),
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Average customer rating",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
                     }
                 }
                 
                 // Available
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top
+                        Column(
+                            modifier = Modifier.padding(16.dp)
                         ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(
+                                    text = "Available",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text("📈", fontSize = 20.sp)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Available",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Medium
+                                text = "${invitations.size}",
+                                style = MaterialTheme.typography.displaySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
-                            Text("📈", fontSize = 20.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "New opportunities",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "${availableJobs.size}",
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "New opportunities",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
                     }
                 }
             }
         }
-
+        
+        // Service Button (no spacing before it)
+        item {
+            if (onServiceClick != null) {
+                Card(
+                    onClick = { onServiceClick() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .offset(y = (-8).dp), // Offset to remove gap above
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Service Areas",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Manage your work types and service locations",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
+                        Text("⚙️", fontSize = 24.sp)
+                    }
+                }
+            }
+        }
+        
         // My Assigned Jobs Section
         item {
-            Column {
-                Text(
-                    text = "My Assigned Jobs",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Jobs currently in progress",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                Card(
+                    Column {
+                        Text(
+                            text = "My Assigned Jobs",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Jobs currently in progress",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface
@@ -734,7 +1254,7 @@ fun ContractorDashboardScreen(
                             Text("💼", fontSize = 64.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                text = "No active jobs. Check available jobs in the marketplace!",
+                                text = "No Active Jobs",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -775,13 +1295,19 @@ fun ContractorDashboardScreen(
                                                 )
                                             }
                                             Surface(
-                                                color = MaterialTheme.colorScheme.primaryContainer,
+                                                color = when (job.status.lowercase()) {
+                                                    "scheduled" -> MaterialTheme.colorScheme.primaryContainer
+                                                    "assigned" -> MaterialTheme.colorScheme.secondaryContainer
+                                                    "completed" -> MaterialTheme.colorScheme.tertiaryContainer
+                                                    else -> MaterialTheme.colorScheme.surfaceVariant
+                                                },
                                                 shape = MaterialTheme.shapes.small
                                             ) {
                                                 Text(
-                                                    text = job.status,
+                                                    text = job.status.replaceFirstChar { it.uppercase() },
                                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                                    style = MaterialTheme.typography.labelSmall
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Medium
                                                 )
                                             }
                                         }
@@ -790,11 +1316,11 @@ fun ContractorDashboardScreen(
                             }
                         }
                     }
+                    }
                 }
             }
-        }
 
-        // Available Jobs Section
+        // Job Invitations Section
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -803,24 +1329,21 @@ fun ContractorDashboardScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Available Jobs",
+                        text = "Job Invitations",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "New opportunities matching your expertise",
+                        text = "Jobs you've been invited to work on",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                     )
                 }
-                TextButton(onClick = { /* View All */ }) {
-                    Text("View All")
-                }
             }
             Spacer(modifier = Modifier.height(16.dp))
             
-            if (availableJobs.isEmpty()) {
+            if (invitations.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -835,59 +1358,147 @@ fun ContractorDashboardScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "No available jobs at the moment",
+                            text = "No job invitations at the moment",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
                     }
                 }
             } else {
-                availableJobs.take(5).forEach { ticket ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface
-                        ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(20.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = ticket.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = ticket.description.take(80) + if (ticket.description.length > 80) "..." else "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = MaterialTheme.shapes.small
+                invitations.forEach { invitation ->
+                    // Only show PENDING invitations with action buttons
+                    if (invitation.status == com.example.mvp.data.InvitationStatus.PENDING) {
+                        val ticket = invitationTickets.find { it.id == invitation.ticketId }
+                        if (ticket != null) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                             ) {
-                                Text(
-                                    text = ticket.category,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Button(
-                                onClick = { onApplyToJob?.invoke(ticket.id) }
-                            ) {
-                                Text("View & Apply")
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(20.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    // Ticket Information Section
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Title
+                                        Text(
+                                            text = ticket.title,
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        
+                                        // Description
+                                        Text(
+                                            text = ticket.description,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                        )
+                                        
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        
+                                        // Category
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            shape = MaterialTheme.shapes.small
+                                        ) {
+                                            Text(
+                                                text = ticket.category,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                        
+                                        // Location Information (Address, City, State)
+                                        if (ticket.submittedByRole == com.example.mvp.data.UserRole.TENANT) {
+                                            val tenantUser = tenantUsers.entries.find { 
+                                                it.key.lowercase() == ticket.submittedBy.lowercase() 
+                                            }?.value
+                                            
+                                            // Build location string: address, city, state
+                                            val address = tenantUser?.address?.takeIf { it.isNotBlank() }
+                                            val city = tenantUser?.city?.takeIf { it.isNotBlank() }
+                                            val state = tenantUser?.state?.takeIf { it.isNotBlank() }
+                                            
+                                            val locationParts = listOfNotNull(address, city, state)
+                                            val locationString = locationParts.joinToString(", ")
+                                            
+                                            if (locationString.isNotEmpty()) {
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.Start,
+                                                    verticalAlignment = Alignment.Top
+                                                ) {
+                                                    Text(
+                                                        text = "Location: ",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                                    )
+                                                    Text(
+                                                        text = locationString,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Priority if available
+                                        ticket.priority?.let { priority ->
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Surface(
+                                                color = when (priority.lowercase()) {
+                                                    "high" -> MaterialTheme.colorScheme.errorContainer
+                                                    "medium" -> MaterialTheme.colorScheme.tertiaryContainer
+                                                    else -> MaterialTheme.colorScheme.surfaceVariant
+                                                },
+                                                shape = MaterialTheme.shapes.small
+                                            ) {
+                                                Text(
+                                                    text = "Priority: ${priority.replaceFirstChar { it.uppercase() }}",
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider()
+                                    
+                                    // Action Buttons
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Button(
+                                            onClick = { onAcceptInvitation?.invoke(invitation.id) },
+                                            modifier = Modifier.weight(1f),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.primary
+                                            )
+                                        ) {
+                                            Text("Accept")
+                                        }
+                                        OutlinedButton(
+                                            onClick = { onDeclineInvitation?.invoke(invitation.id) },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("Decline")
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

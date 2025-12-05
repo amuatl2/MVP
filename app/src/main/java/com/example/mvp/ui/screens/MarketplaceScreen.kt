@@ -19,6 +19,45 @@ import androidx.compose.ui.unit.sp
 import com.example.mvp.data.Contractor
 import com.example.mvp.data.Ticket
 import com.example.mvp.data.TicketStatus
+import com.example.mvp.utils.LocationUtils
+
+/**
+ * Normalizes category names to handle plural/singular variations
+ * Examples: "Appliance" <-> "Appliances", "General Repair" <-> "General Repairs"
+ */
+private fun normalizeCategory(category: String): String {
+    return category.trim().lowercase()
+}
+
+/**
+ * Checks if two categories match, handling plural/singular variations
+ */
+private fun categoriesMatch(category1: String, category2: String): Boolean {
+    val normalized1 = normalizeCategory(category1)
+    val normalized2 = normalizeCategory(category2)
+    
+    // Exact match
+    if (normalized1 == normalized2) return true
+    
+    // Check if one is the plural/singular of the other
+    // Handle common plural/singular patterns
+    val singular1 = if (normalized1.endsWith("s") && normalized1.length > 1) {
+        normalized1.dropLast(1)
+    } else {
+        normalized1
+    }
+    val singular2 = if (normalized2.endsWith("s") && normalized2.length > 1) {
+        normalized2.dropLast(1)
+    } else {
+        normalized2
+    }
+    
+    // Match if singular forms are the same
+    if (singular1 == singular2) return true
+    
+    // Also check if one contains the other (for multi-word categories)
+    return normalized1.contains(normalized2) || normalized2.contains(normalized1)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -27,15 +66,20 @@ fun MarketplaceScreen(
     tickets: List<Ticket> = emptyList(),
     onContractorClick: (String) -> Unit,
     onAssign: (String) -> Unit,
+    onMessage: ((String, String) -> Unit)? = null, // ticketId, contractorId
     onApplyToJob: ((String) -> Unit)? = null,
     userRole: com.example.mvp.data.UserRole,
-    ticketId: String? = null
+    ticketId: String? = null,
+    applications: List<com.example.mvp.data.JobApplication> = emptyList(),
+    invitations: List<com.example.mvp.data.JobInvitation> = emptyList(),
+    tenantCity: String? = null,
+    tenantState: String? = null,
+    contractorUsers: Map<String, com.example.mvp.data.User> = emptyMap(),
+    tenantUsers: Map<String, com.example.mvp.data.User> = emptyMap()
 ) {
     var filterCategory by remember { mutableStateOf("") }
-    var filterDistance by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
     var showCategoryDropdown by remember { mutableStateOf(false) }
-    var showDistanceDropdown by remember { mutableStateOf(false) }
 
     // For contractors: show available jobs (unassigned tickets)
     // For landlords: show contractors
@@ -46,17 +90,99 @@ fun MarketplaceScreen(
         emptyList()
     }
 
-    val categories = if (isContractor) {
-        availableJobs.map { it.category }.distinct().sorted()
-    } else {
-        contractors.flatMap { it.specialization }.distinct().sorted()
-    }
+    val categories = com.example.mvp.data.JobTypes.ALL_TYPES
 
     val filteredContractors = if (!isContractor) {
-        contractors.filter { contractor ->
-            (filterCategory.isEmpty() || contractor.specialization.contains(filterCategory)) &&
-            (filterDistance.isEmpty() || contractor.distance <= filterDistance.toFloatOrNull() ?: Float.MAX_VALUE) &&
+        // Get the ticket if ticketId is provided to filter by its category
+        val ticketForFiltering = ticketId?.let { id -> tickets.find { it.id == id } }
+        
+        val filtered = contractors.filter { contractor ->
+            // Filter by category: if ticketId is provided, use ticket's category; otherwise use filterCategory
+            val categoryToFilter = if (ticketForFiltering != null) {
+                ticketForFiltering.category
+            } else {
+                filterCategory
+            }
+            
+            (categoryToFilter.isEmpty() || contractor.specialization.any { specialization ->
+                categoriesMatch(specialization, categoryToFilter)
+            }) &&
             (searchQuery.isEmpty() || contractor.name.contains(searchQuery, ignoreCase = true) || contractor.company.contains(searchQuery, ignoreCase = true))
+        }
+        
+        // Filter by service areas - contractor must serve at least one city/state where landlord has tenants
+        val locationFiltered = if (userRole == com.example.mvp.data.UserRole.LANDLORD) {
+            // For landlords: only show contractors who serve at least one city/state where they have tenants
+            if (tenantUsers.isNotEmpty()) {
+                val tenantLocations = tenantUsers.values.mapNotNull { user ->
+                    if (user.city != null && user.state != null) {
+                        user.state to user.city
+                    } else null
+                }.toSet()
+                
+                // Only show contractors if we have tenant locations and they serve at least one
+                if (tenantLocations.isNotEmpty()) {
+                    filtered.filter { contractor ->
+                        tenantLocations.any { (state, city) ->
+                            val serviceCities = contractor.serviceAreas[state] ?: emptyList()
+                            serviceCities.any { it.equals(city, ignoreCase = true) } && serviceCities.isNotEmpty()
+                        } && contractor.serviceAreas.isNotEmpty() && 
+                        contractor.serviceAreas.values.any { it.isNotEmpty() }
+                    }
+                } else {
+                    // No tenant locations available, don't show any contractors
+                    emptyList()
+                }
+            } else {
+                // If no tenants, don't show any contractors
+                emptyList()
+            }
+        } else if (ticketForFiltering != null && ticketId != null) {
+            // For specific ticket: filter by ticket creator's city and state
+            // Get tenant user from tenantUsers map using ticket's submittedBy email
+            val ticketCreator = tenantUsers[ticketForFiltering.submittedBy]
+            val creatorCity = ticketCreator?.city
+            val creatorState = ticketCreator?.state
+            
+            if (creatorCity != null && creatorState != null) {
+                // Filter by ticket creator's location
+                filtered.filter { contractor ->
+                    val serviceCities = contractor.serviceAreas[creatorState] ?: emptyList()
+                    serviceCities.any { it.equals(creatorCity, ignoreCase = true) } && serviceCities.isNotEmpty()
+                }
+            } else {
+                // If ticket creator location not available, only filter by category
+                filtered
+            }
+        } else if (tenantCity != null && tenantState != null) {
+            // For specific ticket: check if contractor serves this city/state (case-insensitive)
+            filtered.filter { contractor ->
+                val serviceCities = contractor.serviceAreas[tenantState] ?: emptyList()
+                serviceCities.any { it.equals(tenantCity, ignoreCase = true) } && serviceCities.isNotEmpty()
+            }
+        } else {
+            // Default: only show contractors who have at least one service area
+            filtered.filter { contractor ->
+                contractor.serviceAreas.isNotEmpty() && 
+                contractor.serviceAreas.values.any { it.isNotEmpty() }
+            }
+        }
+        
+        // Sort by proximity if tenant location is available (but don't show distance)
+        if (tenantCity != null && tenantState != null && ticketId != null) {
+            locationFiltered.map { contractor ->
+                val contractorUser = contractorUsers[contractor.id]
+                val distance = LocationUtils.calculateDistance(
+                    tenantCity,
+                    tenantState,
+                    contractorUser?.city,
+                    contractorUser?.state
+                )
+                contractor to distance
+            }.sortedBy { it.second }
+                .map { it.first }
+        } else {
+            locationFiltered
         }
     } else {
         emptyList()
@@ -175,46 +301,6 @@ fun MarketplaceScreen(
                                 }
                             }
 
-                            // Distance Filter (only for landlord view)
-                            if (!isContractor) {
-                                Box(modifier = Modifier.weight(1f)) {
-                                    OutlinedTextField(
-                                        value = if (filterDistance.isEmpty()) "Any Distance" else "$filterDistance mi",
-                                        onValueChange = { },
-                                        label = { Text("Distance") },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { showDistanceDropdown = true },
-                                        readOnly = true,
-                                        trailingIcon = {
-                                            IconButton(onClick = { showDistanceDropdown = true }) {
-                                                Text("▼", fontSize = 12.sp)
-                                            }
-                                        }
-                                    )
-                                    DropdownMenu(
-                                        expanded = showDistanceDropdown,
-                                        onDismissRequest = { showDistanceDropdown = false }
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Any Distance") },
-                                            onClick = {
-                                                filterDistance = ""
-                                                showDistanceDropdown = false
-                                            }
-                                        )
-                                        listOf("5", "10", "20", "50").forEach { dist ->
-                                            DropdownMenuItem(
-                                                text = { Text("$dist miles") },
-                                                onClick = {
-                                                    filterDistance = dist
-                                                    showDistanceDropdown = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -259,6 +345,71 @@ fun MarketplaceScreen(
                     }
                 }
             } else {
+                // Show applicants first if viewing a specific ticket
+                if (ticketId != null && applications.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Applicants (${applications.size})",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    items(applications) { application ->
+                        val contractor = contractors.find { it.id == application.contractorId }
+                        if (contractor != null) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = application.contractorName,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = application.contractorEmail,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                        )
+                                        Text(
+                                            text = "Applied: ${application.appliedAt.split(" ").firstOrNull() ?: application.appliedAt}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { onAssign(application.contractorId) }
+                                    ) {
+                                        Text("Assign")
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "All Contractors",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                
                 // Show contractors for landlords
                 if (filteredContractors.isEmpty()) {
                     item {
@@ -288,12 +439,20 @@ fun MarketplaceScreen(
                     }
                 } else {
                     items(filteredContractors) { contractor ->
-                        ContractorCardForLandlord(
-                            contractor = contractor,
-                            onViewProfile = { onContractorClick(contractor.id) },
-                            onAssign = { onAssign(contractor.id) },
-                            ticketId = ticketId
-                        )
+                        // Don't show contractors who already applied
+                        val hasApplied = applications.any { it.contractorId == contractor.id }
+                        if (!hasApplied) {
+                            ContractorCardForLandlord(
+                                contractor = contractor,
+                                onViewProfile = { onContractorClick(contractor.id) },
+                                onAssign = { onAssign(contractor.id) },
+                                ticketId = ticketId,
+                                tenantUsers = tenantUsers,
+                                onMessage = onMessage?.let { callback ->
+                                    { callback(ticketId ?: "", contractor.id) }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -409,7 +568,10 @@ fun ContractorCardForLandlord(
     contractor: Contractor,
     onViewProfile: () -> Unit,
     onAssign: () -> Unit,
-    ticketId: String?
+    onMessage: (() -> Unit)? = null,
+    ticketId: String?,
+    invitation: com.example.mvp.data.JobInvitation? = null,
+    tenantUsers: Map<String, com.example.mvp.data.User> = emptyMap()
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -510,42 +672,21 @@ fun ContractorCardForLandlord(
                     )
                 }
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Build,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                            )
-                            Text(
-                                text = "${contractor.completedJobs} jobs",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                            )
-                        }
-                    Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            Icons.Default.LocationOn,
+                            imageVector = Icons.Default.Build,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                         )
                         Text(
-                            text = String.format("%.1f mi", contractor.distance),
+                            text = "${contractor.completedJobs} jobs",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                         )
                     }
-                }
             }
 
             // Specializations
@@ -567,6 +708,60 @@ fun ContractorCardForLandlord(
                 }
             }
 
+            // Serves section - show cities where landlord has tenants
+            val landlordTenantCities = remember(tenantUsers, contractor.serviceAreas) {
+                tenantUsers.values
+                    .mapNotNull { tenant -> tenant.city?.let { city -> tenant.state?.let { state -> city to state } } }
+                    .distinct()
+                    .filter { (city, state) ->
+                        contractor.serviceAreas[state]?.contains(city) == true
+                    }
+                    .map { it.first }
+                    .sorted()
+            }
+            
+            if (landlordTenantCities.isNotEmpty()) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                        Text(
+                            text = "Serves:",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        landlordTenantCities.forEach { city ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = MaterialTheme.shapes.small
+                            ) {
+                                Text(
+                                    text = city,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -576,14 +771,22 @@ fun ContractorCardForLandlord(
                     onClick = onViewProfile,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("View Profile")
+                    Text("Info")
                 }
+                
+                // Message button (always enabled)
                 Button(
-                    onClick = onAssign,
+                    onClick = { 
+                        if (onMessage != null) {
+                            onMessage()
+                        } else {
+                            onAssign()
+                        }
+                    },
                     modifier = Modifier.weight(1f),
-                    enabled = ticketId != null
+                    enabled = onMessage != null || ticketId != null
                 ) {
-                    Text("Apply")
+                    Text("Message")
                 }
             }
         }
