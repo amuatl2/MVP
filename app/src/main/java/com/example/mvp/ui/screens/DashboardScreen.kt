@@ -926,16 +926,34 @@ fun ContractorDashboardScreen(
         })
     val completedJobs = jobs.filter { it.status == "completed" }
     
-    // Use contractor's actual rating, or calculate from completed jobs as fallback
-    val avgRating = contractor?.rating?.toDouble() ?: if (completedJobs.isNotEmpty()) {
-        val ratings = completedJobs.mapNotNull { it.rating }
-        if (ratings.isNotEmpty()) {
-            ratings.average()
+    // Calculate rating: Always calculate from tickets to ensure accuracy
+    // Only count tickets that are completed AND have ratings > 0 (same logic as ViewModel)
+    // IMPORTANT: Also depend on contractor object itself to recalculate when contractor loads
+    val avgRating = remember(tickets, contractor?.id, contractor) {
+        val contractorId = contractor?.id
+        if (contractorId != null && tickets.isNotEmpty()) {
+            // Get all tickets assigned to this contractor
+            val contractorTickets = tickets.filter { 
+                it.assignedContractor == contractorId || it.assignedTo == contractorId
+            }
+            
+            // Get only COMPLETED tickets that have been reviewed (have ratings > 0)
+            // This matches the logic in recalculateContractorRating
+            val ratedCompletedTickets = contractorTickets.filter { 
+                it.status == com.example.mvp.data.TicketStatus.COMPLETED &&
+                it.rating != null && 
+                it.rating!! > 0f
+            }
+            
+            if (ratedCompletedTickets.isNotEmpty()) {
+                val ratings = ratedCompletedTickets.mapNotNull { it.rating }
+                ratings.average()
+            } else {
+                0.0
+            }
         } else {
-            0.0 // No rating yet
+            0.0 // No contractor ID or tickets not loaded yet
         }
-    } else {
-        0.0 // No rating yet
     }
     
     // Get tickets for invitations

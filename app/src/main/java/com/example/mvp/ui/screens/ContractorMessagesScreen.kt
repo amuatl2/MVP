@@ -85,23 +85,32 @@ fun ContractorMessagesScreen(
             // Filter to only show messages between contractor and tenant (exclude landlord messages):
             // 1. Contractor is the sender AND tenant is the receiver, OR
             // 2. Tenant is the sender AND contractor is the receiver
+            // EXCLUDE: Messages between tenant and landlord where contractor is NOT involved
             // This ensures contractors only see messages between them and the tenant, not landlord messages
             val filteredTenantMessages = tenantMessages.filter { message ->
                 val sender = message.senderEmail.lowercase()
                 val receiver = message.receiverEmail.lowercase()
                 val landlordEmail = message.landlordEmail.lowercase()
+                val tenantEmail = message.tenantEmail.lowercase()
                 
-                // Exclude messages where landlord is involved (unless contractor is also involved)
-                // Message is between contractor and tenant if:
-                // - Contractor sent it to tenant (sender == contractor, receiver == tenant)
-                // - Tenant sent it to contractor (sender == tenant, receiver == contractor)
-                // AND landlord is not the sender or receiver
-                val isContractorToTenant = sender == normalizedCurrentEmail && receiver == message.tenantEmail.lowercase()
-                val isTenantToContractor = sender == message.tenantEmail.lowercase() && receiver == normalizedCurrentEmail
+                // EXCLUDE tenant-landlord messages (where contractor is NOT sender or receiver)
+                val isTenantLandlordMessage = (sender == tenantEmail && receiver == landlordEmail) || 
+                                              (sender == landlordEmail && receiver == tenantEmail)
+                val contractorInvolved = sender == normalizedCurrentEmail || receiver == normalizedCurrentEmail
                 
-                // Only include if it's a contractor-tenant message (not landlord-tenant)
-                (isContractorToTenant || isTenantToContractor) && 
-                landlordEmail != sender && landlordEmail != receiver
+                if (isTenantLandlordMessage && !contractorInvolved) {
+                    // This is a tenant-landlord message without contractor, exclude it
+                    false
+                } else {
+                    // Message is between contractor and tenant if:
+                    // - Contractor sent it to tenant (sender == contractor, receiver == tenant)
+                    // - Tenant sent it to contractor (sender == tenant, receiver == contractor)
+                    val isContractorToTenant = sender == normalizedCurrentEmail && receiver == tenantEmail
+                    val isTenantToContractor = sender == tenantEmail && receiver == normalizedCurrentEmail
+                    
+                    // Only include if it's a contractor-tenant message
+                    isContractorToTenant || isTenantToContractor
+                }
             }
             
             // Group by tenant and only include conversations where contractor has sent at least one message

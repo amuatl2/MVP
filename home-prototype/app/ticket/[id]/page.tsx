@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useParams } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
@@ -8,6 +8,7 @@ import { useData } from '@/context/DataContext'
 import Navigation from '@/components/Navigation'
 import Link from 'next/link'
 import { FiArrowLeft, FiClock, FiUser, FiCheckCircle } from 'react-icons/fi'
+import { generateMockAIDiagnosis } from '@/utils/mockAIDiagnosis'
 
 export default function TicketDetailPage() {
   const router = useRouter()
@@ -51,6 +52,15 @@ export default function TicketDetailPage() {
 
   const currentStatusIndex = statusSteps.findIndex(s => s.key === ticket.status)
 
+  const enhancedDiagnosis = useMemo(() => {
+    if (!ticket.aiDiagnosis) return null
+    return generateMockAIDiagnosis(
+      ticket.title,
+      ticket.description,
+      ticket.category
+    )
+  }, [ticket.aiDiagnosis, ticket.title, ticket.description, ticket.category])
+
   return (
     <div className="min-h-screen bg-lightGray pt-16">
       <Navigation />
@@ -92,13 +102,45 @@ export default function TicketDetailPage() {
             <p className="text-gray-700">{ticket.description}</p>
           </div>
 
-          {ticket.aiDiagnosis && (
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <h3 className="font-semibold text-darkGray mb-2 flex items-center space-x-2">
-                <span>🤖</span>
-                <span>AI Diagnosis</span>
+          {enhancedDiagnosis && (
+            <div className="mb-6 p-6 bg-blue-50 border border-blue-200 rounded-lg">
+              <h3 className="font-semibold text-darkGray mb-4 flex items-center space-x-2">
+                <span className="text-2xl">🤖</span>
+                <span className="text-lg">AI Diagnosis</span>
               </h3>
-              <p className="text-blue-800">{ticket.aiDiagnosis}</p>
+              
+              <div className="space-y-4">
+                {/* Issue Type */}
+                <div className="flex items-center space-x-3">
+                  <span className="font-semibold text-darkGray">Issue Type:</span>
+                  <span className="px-3 py-1 bg-primary text-white rounded-md font-medium text-sm">
+                    {enhancedDiagnosis.issueType}
+                  </span>
+                </div>
+                
+                <div className="border-t border-blue-300"></div>
+                
+                {/* Description */}
+                <div>
+                  <h4 className="font-semibold text-darkGray mb-2">Description:</h4>
+                  <p className="text-gray-700 leading-relaxed">{enhancedDiagnosis.description}</p>
+                </div>
+                
+                <div className="border-t border-blue-300"></div>
+                
+                {/* Possible Solutions */}
+                <div>
+                  <h4 className="font-semibold text-darkGray mb-3">Possible Solutions:</h4>
+                  <ul className="space-y-2">
+                    {enhancedDiagnosis.possibleSolutions.map((solution, index) => (
+                      <li key={index} className="flex items-start space-x-3">
+                        <span className="font-bold text-primary mt-0.5">{index + 1}.</span>
+                        <span className="text-gray-700 flex-1">{solution}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
             </div>
           )}
 

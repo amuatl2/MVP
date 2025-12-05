@@ -11,7 +11,7 @@ import { FiClock, FiCheckCircle, FiBriefcase } from 'react-icons/fi'
 export default function ContractorDashboardPage() {
   const router = useRouter()
   const { user } = useAuth()
-  const { jobs } = useData()
+  const { jobs, tickets } = useData()
   const [activeTab, setActiveTab] = useState<'assigned' | 'completed'>('assigned')
 
   if (!user || user.role !== 'contractor') {
@@ -22,13 +22,64 @@ export default function ContractorDashboardPage() {
   const assignedJobs = jobs.filter(j => j.status !== 'completed')
   const completedJobs = jobs.filter(j => j.status === 'completed')
 
+  // Calculate rating from COMPLETED tickets that have been reviewed (have ratings)
+  // Only count tickets that are completed AND have ratings
+  // Find contractor ID from jobs assigned to this user
+  const userJobs = jobs.filter(j => j.contractorId && j.contractorId.includes('contractor'))
+  const contractorId = userJobs.length > 0 ? userJobs[0].contractorId : null
+  
+  // Get tickets assigned to this contractor (via jobs)
+  const contractorTicketIds = jobs
+    .filter(j => j.contractorId === contractorId)
+    .map(j => j.ticketId)
+  
+  const contractorTickets = tickets.filter(t => 
+    contractorTicketIds.includes(t.id)
+  )
+  
+  // Get only COMPLETED tickets that have been reviewed (have ratings)
+  const ratedCompletedTickets = contractorTickets.filter(t => 
+    t.status === 'completed' && 
+    t.rating != null && 
+    t.rating > 0
+  )
+  
+  const avgRating = ratedCompletedTickets.length > 0
+    ? ratedCompletedTickets.reduce((sum, t) => sum + (t.rating || 0), 0) / ratedCompletedTickets.length
+    : 0
+
   return (
-    <div className="min-h-screen bg-lightGray pt-16">
+    <div className="min-h-screen bg-lightGray pt-16 pb-20">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-darkGray mb-2">Contractor Dashboard</h1>
           <p className="text-gray-600">Manage your jobs and assignments</p>
+        </div>
+
+        {/* Rating Display */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-darkGray mb-1">Your Rating</h3>
+              <p className="text-sm text-gray-600">
+                {ratedCompletedTickets.length > 0 
+                  ? `Based on ${ratedCompletedTickets.length} completed ${ratedCompletedTickets.length === 1 ? 'job' : 'jobs'}`
+                  : 'No completed jobs with ratings yet'}
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-4xl font-bold text-primary">
+                {avgRating > 0 ? avgRating.toFixed(1) : 'N/A'}
+              </div>
+              {avgRating > 0 && (
+                <div className="flex items-center justify-end space-x-1 mt-1">
+                  <span className="text-yellow-500 text-xl">★</span>
+                  <span className="text-sm text-gray-600">({ratedCompletedTickets.length} reviews)</span>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="bg-white rounded-lg shadow-md mb-6">

@@ -696,6 +696,16 @@ class FirebaseRepository {
         
         android.util.Log.d("FirebaseRepository", "Observing messages between: $normalizedUser1 and $normalizedUser2")
         
+        // Use a map to track messages by ID to prevent duplicates and ensure all messages are preserved
+        val allMessagesMap = mutableMapOf<String, DirectMessage>()
+        
+        // Helper function to update and emit messages
+        fun updateAndEmit() {
+            val sortedMessages = allMessagesMap.values.sortedBy { it.timestamp }
+            android.util.Log.d("FirebaseRepository", "Emitting ${sortedMessages.size} messages between $normalizedUser1 and $normalizedUser2")
+            trySend(sortedMessages)
+        }
+        
         // Query messages where user1 is sender and user2 is receiver
         val listener1 = db?.collection("directMessages")
             ?.whereEqualTo("senderEmail", normalizedUser1)
@@ -707,9 +717,11 @@ class FirebaseRepository {
                     return@addSnapshotListener
                 }
                 val messages = snapshot?.documents?.mapNotNull { it.toDirectMessage() } ?: emptyList()
-                if (messages.isNotEmpty()) {
-                    trySend(messages)
+                // Update map with new messages (by ID to prevent duplicates)
+                messages.forEach { message ->
+                    allMessagesMap[message.id] = message
                 }
+                updateAndEmit()
             }
         
         // Query messages where user2 is sender and user1 is receiver
@@ -723,9 +735,11 @@ class FirebaseRepository {
                     return@addSnapshotListener
                 }
                 val messages = snapshot?.documents?.mapNotNull { it.toDirectMessage() } ?: emptyList()
-                if (messages.isNotEmpty()) {
-                    trySend(messages)
+                // Update map with new messages (by ID to prevent duplicates)
+                messages.forEach { message ->
+                    allMessagesMap[message.id] = message
                 }
+                updateAndEmit()
             }
         
         awaitClose { 
@@ -984,7 +998,15 @@ class FirebaseRepository {
         val normalizedTenantEmail = tenantEmail.trim().lowercase()
         android.util.Log.d("FirebaseRepository", "Observing all direct messages for tenant: $normalizedTenantEmail")
         
-        val allMessages = mutableListOf<DirectMessage>()
+        // Use a map to track messages by ID to prevent duplicates and ensure all messages are preserved
+        val allMessagesMap = mutableMapOf<String, DirectMessage>()
+        
+        // Helper function to update and emit messages
+        fun updateAndEmit() {
+            val sortedMessages = allMessagesMap.values.sortedBy { it.timestamp }
+            android.util.Log.d("FirebaseRepository", "Emitting ${sortedMessages.size} messages for tenant")
+            trySend(sortedMessages)
+        }
         
         // Query messages where tenant is sender (new format)
         val listener1 = db?.collection("directMessages")
@@ -996,9 +1018,11 @@ class FirebaseRepository {
                     return@addSnapshotListener
                 }
                 val messages = snapshot?.documents?.mapNotNull { it.toDirectMessage() } ?: emptyList()
-                allMessages.removeAll { it.senderEmail.lowercase() == normalizedTenantEmail }
-                allMessages.addAll(messages)
-                trySend(allMessages.sortedBy { it.timestamp })
+                // Update map with new messages (by ID to prevent duplicates)
+                messages.forEach { message ->
+                    allMessagesMap[message.id] = message
+                }
+                updateAndEmit()
             }
         
         // Query messages where tenant is receiver (new format)
@@ -1011,9 +1035,11 @@ class FirebaseRepository {
                     return@addSnapshotListener
                 }
                 val messages = snapshot?.documents?.mapNotNull { it.toDirectMessage() } ?: emptyList()
-                allMessages.removeAll { it.receiverEmail.lowercase() == normalizedTenantEmail }
-                allMessages.addAll(messages)
-                trySend(allMessages.sortedBy { it.timestamp })
+                // Update map with new messages (by ID to prevent duplicates)
+                messages.forEach { message ->
+                    allMessagesMap[message.id] = message
+                }
+                updateAndEmit()
             }
         
         // Also query old format for backward compatibility
@@ -1026,12 +1052,11 @@ class FirebaseRepository {
                     return@addSnapshotListener
                 }
                 val messages = snapshot?.documents?.mapNotNull { it.toDirectMessage() } ?: emptyList()
-                // Only add if not already in allMessages
-                val newMessages = messages.filter { msg ->
-                    !allMessages.any { it.id == msg.id }
+                // Update map with new messages (by ID to prevent duplicates)
+                messages.forEach { message ->
+                    allMessagesMap[message.id] = message
                 }
-                allMessages.addAll(newMessages)
-                trySend(allMessages.sortedBy { it.timestamp })
+                updateAndEmit()
             }
         
         awaitClose { 

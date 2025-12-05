@@ -32,7 +32,7 @@ function TenantDashboard() {
   const myTickets = tickets.filter(t => t.submittedBy === 'tenant@example.com')
 
   return (
-    <div className="min-h-screen bg-lightGray pt-16">
+    <div className="min-h-screen bg-lightGray pt-16 pb-20">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
@@ -93,7 +93,7 @@ function LandlordDashboard() {
   const openTickets = tickets.filter(t => t.status !== 'completed')
 
   return (
-    <div className="min-h-screen bg-lightGray pt-16">
+    <div className="min-h-screen bg-lightGray pt-16 pb-20">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
@@ -174,7 +174,7 @@ function ContractorDashboard() {
   const completedJobs = jobs.filter(j => j.status === 'completed')
 
   return (
-    <div className="min-h-screen bg-lightGray pt-16">
+    <div className="min-h-screen bg-lightGray pt-16 pb-20">
       <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">

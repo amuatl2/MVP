@@ -26,20 +26,22 @@ fun HomeBottomNavigation(
             NavItem("tenant_messages", "Messages", Icons.Default.Email),
             NavItem("tenant_review", "Review", Icons.Default.Star),
             NavItem("history", "History", Icons.Default.Info),
-            NavItem("tenant_landlord", "Landlord", Icons.Default.Person)
+            NavItem("chat", "AI Chat", Icons.Default.Notifications)
         )
         UserRole.LANDLORD -> listOf(
             NavItem("dashboard", "Dashboard", Icons.Default.Home),
             NavItem("landlord_tenants", "Tenants", Icons.Default.Person),
             NavItem("marketplace", "Marketplace", Icons.Default.Person),
             NavItem("landlord_messages", "Messages", Icons.Default.Email),
-            NavItem("history", "History", Icons.Default.Info)
+            NavItem("history", "History", Icons.Default.Info),
+            NavItem("chat", "AI Chat", Icons.Default.Notifications)
         )
         UserRole.CONTRACTOR -> listOf(
             NavItem("contractor_dashboard", "Jobs", Icons.Default.Build),
             NavItem("schedule", "Schedule", Icons.Default.DateRange),
             NavItem("contractor_messages", "Messages", Icons.Default.Email),
-            NavItem("history", "History", Icons.Default.Info)
+            NavItem("history", "History", Icons.Default.Info),
+            NavItem("chat", "AI Chat", Icons.Default.Notifications)
         )
     }
 

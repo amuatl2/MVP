@@ -1123,8 +1123,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 android.util.Log.d("HomeViewModel", "Contractor ${contractor.id} has ${contractorTickets.size} total tickets")
                 
-                // Step 2: Get only tickets that have ratings (not null and > 0)
+                // Step 2: Get only COMPLETED tickets that have been reviewed (have ratings)
                 val ratedTickets = contractorTickets.filter { 
+                    it.status == TicketStatus.COMPLETED && 
                     it.rating != null && it.rating!! > 0f
                 }
                 android.util.Log.d("HomeViewModel", "Found ${ratedTickets.size} tickets with ratings")
@@ -1184,13 +1185,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 it.assignedContractor == contractorId || it.assignedTo == contractorId
             }
             
-            // Get only tickets with ratings
+            // Get only COMPLETED tickets that have been reviewed (have ratings)
             val ratedTickets = contractorTickets.filter { 
+                it.status == TicketStatus.COMPLETED && 
                 it.rating != null && it.rating!! > 0f
             }
             
             if (ratedTickets.isEmpty()) {
-                android.util.Log.d("HomeViewModel", "No rated tickets for contractor $contractorId")
+                android.util.Log.d("HomeViewModel", "No completed and rated tickets for contractor $contractorId")
                 return@launch
             }
             
@@ -2145,9 +2147,23 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                             (sent + received).distinctBy { it.id }
                         }.collect { allMessages ->
                             // Filter to only show messages where contractor is sender or receiver
+                            // EXCLUDE tenant-landlord messages (where contractor is NOT involved)
                             val filteredMessages = allMessages.filter { message ->
-                                message.senderEmail.lowercase() == normalizedEmail ||
-                                message.receiverEmail.lowercase() == normalizedEmail
+                                val sender = message.senderEmail.lowercase()
+                                val receiver = message.receiverEmail.lowercase()
+                                val tenant = message.tenantEmail.lowercase()
+                                val landlord = message.landlordEmail.lowercase()
+                                
+                                // EXCLUDE tenant-landlord messages (where contractor is NOT sender or receiver)
+                                val isTenantLandlordMessage = (sender == tenant && receiver == landlord) || 
+                                                              (sender == landlord && receiver == tenant)
+                                val contractorInvolved = sender == normalizedEmail || receiver == normalizedEmail
+                                
+                                if (isTenantLandlordMessage && !contractorInvolved) {
+                                    false
+                                } else {
+                                    sender == normalizedEmail || receiver == normalizedEmail
+                                }
                             }
                             android.util.Log.d("HomeViewModel", "Filtered ${filteredMessages.size} contractor-tenant messages (contractor-sent and contractor-received)")
                             _allContractorTenantMessages.value = filteredMessages.sortedBy { it.timestamp }
@@ -2162,16 +2178,29 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                             // 1. Contractor is the sender (senderEmail == contractorEmail) - they sent it
                             // 2. Contractor is the receiver (receiverEmail == contractorEmail) - tenant sent it to contractor
                             // 3. Tenant sent the message (senderEmail == tenantEmail) AND tenantEmail is in assigned tenants (old format)
+                            // EXCLUDE: Messages between tenant and landlord (where contractor is NOT involved)
                             // Then, only include conversations where contractor has sent at least one message OR received at least one message
                             val allFilteredMessages = allMessages.filter { message ->
                                 val sender = message.senderEmail.lowercase()
                                 val receiver = message.receiverEmail.lowercase()
                                 val tenant = message.tenantEmail.lowercase()
+                                val landlord = message.landlordEmail.lowercase()
                                 
-                                // Contractor sent it OR contractor received it OR tenant sent it (for assigned tenants, old format)
-                                sender == normalizedEmail || 
-                                receiver == normalizedEmail ||
-                                (sender == tenant && tenantEmails.contains(tenant))
+                                // EXCLUDE tenant-landlord messages (where contractor is NOT sender or receiver)
+                                // If both sender and receiver are tenant and landlord (and neither is contractor), exclude it
+                                val isTenantLandlordMessage = (sender == tenant && receiver == landlord) || 
+                                                              (sender == landlord && receiver == tenant)
+                                val contractorInvolved = sender == normalizedEmail || receiver == normalizedEmail
+                                
+                                if (isTenantLandlordMessage && !contractorInvolved) {
+                                    // This is a tenant-landlord message, exclude it
+                                    false
+                                } else {
+                                    // Contractor sent it OR contractor received it OR tenant sent it (for assigned tenants, old format)
+                                    sender == normalizedEmail || 
+                                    receiver == normalizedEmail ||
+                                    (sender == tenant && tenantEmails.contains(tenant))
+                                }
                             }
                             
                             // Group by tenant (use tenantEmail for old messages, senderEmail/receiverEmail for new messages)

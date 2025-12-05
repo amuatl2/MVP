@@ -1041,6 +1041,16 @@ fun HomeApp() {
                     contractors.find { it.id == contractorId }
                 }
                 
+                // Always recalculate contractor rating when contractor and tickets are loaded
+                // This ensures the rating is always accurate and up-to-date
+                LaunchedEffect(latestContractor?.id, allTickets.size) {
+                    val contractor = latestContractor ?: contractor
+                    if (contractor != null && contractor.id != null && allTickets.isNotEmpty()) {
+                        // Always recalculate to ensure accuracy (rating might be outdated)
+                        viewModel.recalculateContractorRating(contractor.id)
+                    }
+                }
+                
                 ContractorDashboardScreen(
                     jobs = jobs,
                     tickets = allTickets, // Contractors need to see all tickets for invitations
@@ -1700,22 +1710,10 @@ fun HomeApp() {
             }
 
             composable(Screen.Chat.route) {
-                // For contractors, show contractor-landlord chat screen
-                if (currentUser?.role == UserRole.CONTRACTOR) {
-                    val contractorId = viewModel.getContractorIdForUser(currentUser)
-                    ContractorLandlordChatScreen(
-                        tickets = allTickets,
-                        contractorId = contractorId,
-                        onTicketClick = { ticketId ->
-                            navController.navigate(Screen.ContractorLandlordConversation.createRoute(ticketId))
-                        },
-                        onBack = { navController.popBackStack() }
-                    )
-                } else {
-                    ChatScreen(
-                        onBack = { navController.popBackStack() }
-                    )
-                }
+                // Show AI Chat Assistant for all roles (Tenant, Landlord, Contractor)
+                ChatScreen(
+                    onBack = { navController.popBackStack() }
+                )
             }
             
             composable(
@@ -2348,6 +2346,15 @@ fun HomeApp() {
                     it.tenantEmail.trim().lowercase() == normalizedTenantEmail
                 }
                 
+                // Determine landlord email for filtering - use connectedLandlord if tenant, otherwise use user email if landlord
+                val landlordEmailForFilter = remember(connectedLandlord?.landlordEmail, user?.email, user?.role) {
+                    when (user?.role) {
+                        com.example.mvp.data.UserRole.TENANT -> connectedLandlord?.landlordEmail?.lowercase()
+                        com.example.mvp.data.UserRole.LANDLORD -> user?.email?.lowercase()
+                        else -> null
+                    }
+                }
+                
                 // IMPORTANT: Use tenantEmailParam directly in LaunchedEffect key to ensure it restarts when route changes
                 LaunchedEffect(tenantEmailParam, user?.email, user?.role) {
                     // For tenants, always use user.email to ensure isolation
@@ -2359,8 +2366,8 @@ fun HomeApp() {
                     }
                     if (emailToObserve.isNotEmpty()) {
                         android.util.Log.d("MainActivity", "Observing messages for tenant: $emailToObserve (role=${user?.role}, tenantEmailParam=$tenantEmailParam)")
-                        // Stop previous observation and clear messages before starting new one for this tenant
-                        viewModel.clearDirectMessages()
+                        // Don't clear messages here - let the observation update naturally
+                        // This prevents messages from disappearing when screen loads
                         viewModel.startObservingDirectMessages(emailToObserve)
                     } else {
                         android.util.Log.d("MainActivity", "Not observing - emailToObserve is empty")
@@ -2378,12 +2385,50 @@ fun HomeApp() {
                 
                 val directMessages by viewModel.directMessages.collectAsState()
                 
+                // Filter messages to only show conversation between tenant and specific landlord
+                // IMPORTANT: Always show all messages if landlordEmailForFilter is not yet available
+                // This prevents messages from disappearing when connection loads
+                val filteredMessages = remember(directMessages, tenantEmail, landlordEmailForFilter, user?.email, user?.role) {
+                    val normalizedTenantEmail = tenantEmail.lowercase()
+                    
+                    // If we have a landlord email to filter by, filter messages
+                    if (landlordEmailForFilter != null && tenantEmail.isNotEmpty()) {
+                        directMessages.filter { message ->
+                            // Include messages where:
+                            // 1. Tenant is sender and landlord is receiver, OR
+                            // 2. Landlord is sender and tenant is receiver, OR
+                            // 3. Old format: tenantEmail matches AND landlordEmail matches
+                            val sender = message.senderEmail.lowercase()
+                            val receiver = message.receiverEmail.lowercase()
+                            val messageTenantEmail = message.tenantEmail.lowercase()
+                            val messageLandlordEmail = message.landlordEmail.lowercase()
+                            
+                            // New format check
+                            (sender == normalizedTenantEmail && receiver == landlordEmailForFilter) ||
+                            (sender == landlordEmailForFilter && receiver == normalizedTenantEmail) ||
+                            // Old format check
+                            (messageTenantEmail == normalizedTenantEmail && messageLandlordEmail == landlordEmailForFilter)
+                        }.sortedBy { it.timestamp }
+                    } else {
+                        // If landlord email not available yet, show all messages for this tenant
+                        // This ensures messages don't disappear while connection is loading
+                        directMessages.filter { message ->
+                            val sender = message.senderEmail.lowercase()
+                            val receiver = message.receiverEmail.lowercase()
+                            val messageTenantEmail = message.tenantEmail.lowercase()
+                            
+                            // Show messages where tenant is involved (sender or receiver)
+                            sender == normalizedTenantEmail || receiver == normalizedTenantEmail || messageTenantEmail == normalizedTenantEmail
+                        }.sortedBy { it.timestamp }
+                    }
+                }
+                
                 // Mark all messages as read when conversation screen opens
-                LaunchedEffect(directMessages.size, tenantEmail, currentUser?.email) {
+                LaunchedEffect(filteredMessages.size, tenantEmail, currentUser?.email) {
                     val user = currentUser
-                    if (directMessages.isNotEmpty() && user?.email != null) {
+                    if (filteredMessages.isNotEmpty() && user?.email != null) {
                         val readerEmail = user.email.lowercase()
-                        val unreadMessageIds = directMessages
+                        val unreadMessageIds = filteredMessages
                             .filter { 
                                 it.senderEmail.lowercase() != readerEmail &&
                                 !it.readBy.contains(readerEmail)
@@ -2401,7 +2446,7 @@ fun HomeApp() {
                         user?.role == com.example.mvp.data.UserRole.LANDLORD
                     } ?: "",
                     tenantEmail = tenantEmail, // Pass tenant email
-                    messages = directMessages,
+                    messages = filteredMessages,
                     currentUserEmail = user?.email ?: "",
                     currentUserName = user?.name ?: "",
                     currentUserRole = user?.role, // Pass user role

@@ -4,7 +4,7 @@ import React from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import Navigation from '@/components/Navigation'
-import { FiMessageCircle } from 'react-icons/fi'
+import ChatInterface from '@/components/ChatInterface'
 
 export default function ChatPage() {
   const router = useRouter()
@@ -16,18 +16,18 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-lightGray pt-16">
+    <div className="min-h-screen bg-lightGray pt-16 pb-20">
       <Navigation />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow-md p-8 text-center">
-          <FiMessageCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-darkGray mb-2">Chat Feature</h2>
-          <p className="text-gray-600 mb-4">
-            Real-time messaging functionality will be available here for communication between tenants, landlords, and contractors.
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h2 className="text-2xl font-bold text-darkGray mb-4">AI Chat Assistant</h2>
+          <p className="text-gray-600 mb-6">
+            Chat with our AI assistant for help with maintenance questions, ticket tracking, 
+            contractor recommendations, and more.
           </p>
-          <p className="text-sm text-gray-500">
-            This is a placeholder for the chat/messaging system.
-          </p>
+          <div className="h-[600px]">
+            <ChatInterface />
+          </div>
         </div>
       </div>
     </div>

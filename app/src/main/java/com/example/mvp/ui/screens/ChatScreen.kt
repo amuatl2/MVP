@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import com.example.mvp.utils.MockAIService
 
 data class ChatMessage(
     val id: String,
@@ -48,38 +49,9 @@ fun ChatScreen(
     }
     var newMessage by remember { mutableStateOf("") }
     var isTyping by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-
-    fun generateAIResponse(userMessage: String): String {
-        val lowerMessage = userMessage.lowercase()
-        return when {
-            lowerMessage.contains("maintenance") || lowerMessage.contains("issue") || lowerMessage.contains("problem") -> {
-                "I can help you with maintenance issues! You can create a ticket through the 'Create Ticket' tab. Describe your issue, select a category (Plumbing, Electrical, HVAC, or Appliance), and our AI will help diagnose it. What type of issue are you facing?"
-            }
-            lowerMessage.contains("ticket") || lowerMessage.contains("status") || lowerMessage.contains("update") -> {
-                "To check your ticket status, go to your Dashboard and tap on any ticket card. You'll see a status tracker showing: Submitted → Assigned → Scheduled → Completed. You can also view all tickets in the History tab. Need help with a specific ticket?"
-            }
-            lowerMessage.contains("contractor") || lowerMessage.contains("find") || lowerMessage.contains("recommend") || lowerMessage.contains("assign") -> {
-                "To find contractors, navigate to the Marketplace tab. You can filter by category, distance, ratings, and preferred status. I recommend checking contractors with 4.5+ star ratings for the best service. Would you like help finding a contractor for a specific issue?"
-            }
-            lowerMessage.contains("schedule") || lowerMessage.contains("appointment") || lowerMessage.contains("visit") -> {
-                "You can schedule appointments through the Schedule tab. Select an available date from the calendar, choose a time slot that works for you, and confirm your selection. The system will automatically notify all parties. Ready to schedule?"
-            }
-            lowerMessage.contains("rating") || lowerMessage.contains("review") || lowerMessage.contains("feedback") -> {
-                "After a job is completed, you can rate the contractor through the Rating tab. Your feedback helps improve our service and helps other users find reliable contractors. Ratings are based on a 5-star system. Have you completed a job recently?"
-            }
-            lowerMessage.contains("hello") || lowerMessage.contains("hi") || lowerMessage.contains("hey") -> {
-                "Hello! I'm here to help you with HOME platform questions. You can ask me about creating tickets, finding contractors, scheduling appointments, rating contractors, viewing history, or anything else related to property maintenance!"
-            }
-            lowerMessage.contains("help") || lowerMessage.contains("what can you do") -> {
-                "I can help with: ✓ Creating maintenance tickets\n✓ Tracking ticket status\n✓ Finding and recommending contractors\n✓ Scheduling appointments\n✓ Rating contractors\n✓ Viewing maintenance history\n✓ Navigating the HOME platform\n\nWhat would you like to know?"
-            }
-            else -> {
-                "Thank you for your message! As the HOME AI Assistant, I specialize in helping with ticket management, contractor selection, scheduling, and platform navigation. Feel free to ask specific questions about maintenance issues, ticket status, contractor recommendations, or how to use any feature of the app."
-            }
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -132,6 +104,31 @@ fun ChatScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Error message banner
+            errorMessage?.let { error ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = error,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        IconButton(onClick = { errorMessage = null }) {
+                            Text("✕", color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                    }
+                }
+            }
+            
             // Messages
             LazyColumn(
                 modifier = Modifier
@@ -260,7 +257,7 @@ fun ChatScreen(
                     )
                     FilledIconButton(
                         onClick = {
-                            if (newMessage.isNotBlank()) {
+                            if (newMessage.isNotBlank() && !isTyping) {
                                 val userMessage = newMessage
                                 val userMsg = ChatMessage(
                                     id = "${messages.size + 1}",
@@ -270,15 +267,19 @@ fun ChatScreen(
                                 )
                                 messages = messages + userMsg
                                 newMessage = ""
+                                errorMessage = null
                                 
-                                // Simulate AI typing
+                                // Show typing indicator
                                 isTyping = true
                                 
-                                // Generate AI response after delay
-                                CoroutineScope(Dispatchers.Main).launch {
-                                    delay(1500) // Typing indicator
+                                // Use Mock AI (for demo purposes)
+                                scope.launch {
+                                    // Simulate realistic typing delay
+                                    val aiResponse = MockAIService.generateResponse(userMessage)
+                                    val typingDelay = MockAIService.getTypingDelay(aiResponse)
+                                    delay(typingDelay)
+                                    
                                     isTyping = false
-                                    val aiResponse = generateAIResponse(userMessage)
                                     val aiMsg = ChatMessage(
                                         id = "${messages.size + 2}",
                                         text = aiResponse,
@@ -287,9 +288,7 @@ fun ChatScreen(
                                         isAI = true
                                     )
                                     messages = messages + aiMsg
-                                    scope.launch {
-                                        listState.animateScrollToItem(0)
-                                    }
+                                    listState.animateScrollToItem(0)
                                 }
                             }
                         },
