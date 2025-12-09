@@ -25,6 +25,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import com.example.mvp.data.FirebaseRepository
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
+import com.google.firebase.remoteconfig.ConfigUpdate
+import com.google.firebase.remoteconfig.ConfigUpdateListener
+import com.google.firebase.remoteconfig.FirebaseRemoteConfigException
+import android.util.Log
+import android.content.ContentValues
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -41,18 +47,86 @@ import com.example.mvp.ui.screens.ContractorLandlordConversationScreen
 import com.example.mvp.ui.screens.JobCompletionScreen
 import com.example.mvp.ui.theme.MVPTheme
 import com.example.mvp.viewmodel.HomeViewModel
+import com.google.firebase.Firebase
+import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.GenerativeBackend
 
-class MainActivity : ComponentActivity() {
+private const val TAG = "MainActivity"
+
+private suspend fun generateAIDiagnosis(
+    title: String, 
+    description: String, 
+    category: String, 
+    remoteConfig: FirebaseRemoteConfig
+): String = try {
+    // Make sure Remote Config has already been fetch/activated
+    val modelName = remoteConfig.getString("model_name")
+        .ifBlank { "gemini-pro" } // fallback
+
+    val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+        modelName = remoteConfig.getString("model_name")
+    )
+    
+    val prompt = """
+        Based on the following maintenance issue, provide in only one short paragraph what type of contractor should be contacted (if any) to fix the problem:
+        
+        Title: $title
+        Category: $category
+        Description: $description
+        
+        Focus on identifying the specific trade or expertise needed (e.g., plumber, electrician, HVAC technician, general contractor, etc.). Be concise and practical.
+    """.trimIndent()
+    
+    val response = model.generateContent(prompt)
+    response.text?.trim().orEmpty()
+} catch (t: Throwable) {
+    Log.e(TAG, "Error generating AI diagnosis", t)
+    "AI diagnosis temporarily unavailable. Category: $category"
+}
+
+class MainActivity : ComponentActivity() {    
+    private lateinit var remoteConfig: FirebaseRemoteConfig
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        // Set default values for Remote Config parameters.
+        remoteConfig = FirebaseRemoteConfig.getInstance()
+        remoteConfig.setDefaultsAsync(R.xml.remote_config_defaults)
+        
+        // Fetch and activate Remote Config values
+        remoteConfig.fetchAndActivate()
+            .addOnCompleteListener(this) { task ->
+                if (task.isSuccessful) {
+                    val updated = task.result
+                    Log.d(TAG, "Remote Config values fetched and activated: $updated")
+                } else {
+                    Log.e(TAG, "Error fetching Remote Config", task.exception)
+                }
+            }
+        
+        // Add a real-time Remote Config listener
+        remoteConfig.addOnConfigUpdateListener(object : ConfigUpdateListener {
+            override fun onUpdate(configUpdate : ConfigUpdate) {
+                Log.d(ContentValues.TAG, "Updated keys: " + configUpdate.updatedKeys);
+                remoteConfig.activate().addOnCompleteListener {
+                    // Optionally, add an action to perform on update here.
+                }
+            }
+
+            override fun onError(error : FirebaseRemoteConfigException) {
+                Log.w(ContentValues.TAG, "Config update error with code: " + error.code, error)
+            }
+        })
+        
         setContent {
             MVPTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    HomeApp()
+                    HomeApp(remoteConfig = remoteConfig)
                 }
             }
         }
@@ -61,7 +135,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeApp() {
+fun HomeApp(remoteConfig: FirebaseRemoteConfig) {
     val viewModel: HomeViewModel = viewModel()
     val navController = rememberNavController()
 
@@ -434,6 +508,7 @@ fun HomeApp() {
                 // Only tenants can create tickets
                 if (currentUser?.role == UserRole.TENANT) {
                     val connections by viewModel.connections.collectAsState()
+                    val scope = rememberCoroutineScope()
                     val hasConnectedLandlord = remember(connections, currentUser?.email) {
                         connections.any { 
                             it.tenantEmail.lowercase() == currentUser?.email?.lowercase() && 
@@ -448,25 +523,32 @@ fun HomeApp() {
                             if (hasConnectedLandlord) {
                                 val dateStr = com.example.mvp.utils.DateUtils.getCurrentDateString()
                                 val ticketId = "ticket-${System.currentTimeMillis()}"
-                                val newTicket = Ticket(
-                                    id = ticketId,
-                                    title = title,
-                                    description = description,
-                                    category = category,
-                                    status = TicketStatus.SUBMITTED,
-                                    submittedBy = currentUser?.email ?: "",
-                                    submittedByRole = currentUser?.role ?: UserRole.TENANT,
-                                    aiDiagnosis = "AI Suggestion: $category - Auto-detected",
-                                    createdAt = com.example.mvp.utils.DateUtils.getCurrentDateTimeString(),
-                                    createdDate = dateStr,
-                                    priority = priority,
-                                    ticketNumber = "${System.currentTimeMillis() % 100000}"
-                                )
-                                viewModel.addTicket(newTicket)
-                                // Navigate to the ticket detail page after submission
-                                navController.navigate(Screen.TicketDetail.createRoute(ticketId)) {
-                                    // Pop the create ticket screen from the back stack
-                                    popUpTo(Screen.CreateTicket.route) { inclusive = true }
+                                
+                                // Launch coroutine to generate AI diagnosis
+                                scope.launch {
+                                    val aiDiagnosis = generateAIDiagnosis(title, description, category, remoteConfig)
+                                    
+                                    val newTicket = Ticket(
+                                        id = ticketId,
+                                        title = title,
+                                        description = description,
+                                        category = category,
+                                        status = TicketStatus.SUBMITTED,
+                                        submittedBy = currentUser?.email ?: "",
+                                        submittedByRole = currentUser?.role ?: UserRole.TENANT,
+                                        aiDiagnosis = aiDiagnosis,
+                                        createdAt = com.example.mvp.utils.DateUtils.getCurrentDateTimeString(),
+                                        createdDate = dateStr,
+                                        priority = priority,
+                                        ticketNumber = "${System.currentTimeMillis() % 100000}"
+                                    )
+                                    viewModel.addTicket(newTicket)
+                                    
+                                    // Navigate to the ticket detail page after submission
+                                    navController.navigate(Screen.TicketDetail.createRoute(ticketId)) {
+                                        // Pop the create ticket screen from the back stack
+                                        popUpTo(Screen.CreateTicket.route) { inclusive = true }
+                                    }
                                 }
                             }
                         },
