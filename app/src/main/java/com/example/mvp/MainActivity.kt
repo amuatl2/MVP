@@ -30,7 +30,7 @@ import com.google.firebase.remoteconfig.ConfigUpdate
 import com.google.firebase.remoteconfig.ConfigUpdateListener
 import com.google.firebase.remoteconfig.FirebaseRemoteConfigException
 import android.util.Log
-import android.provider.Settings.ContentValues
+import android.content.ContentValues
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -47,12 +47,44 @@ import com.example.mvp.ui.screens.ContractorLandlordConversationScreen
 import com.example.mvp.ui.screens.JobCompletionScreen
 import com.example.mvp.ui.theme.MVPTheme
 import com.example.mvp.viewmodel.HomeViewModel
+import com.google.firebase.Firebase
+import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.GenerativeBackend
 
-class MainActivity : ComponentActivity() {
-    companion object {
-        private const val TAG = "MainActivity"
-    }
+private const val TAG = "MainActivity"
+
+private suspend fun generateAIDiagnosis(
+    title: String, 
+    description: String, 
+    category: String, 
+    remoteConfig: FirebaseRemoteConfig
+): String = try {
+    // Make sure Remote Config has already been fetch/activated
+    val modelName = remoteConfig.getString("model_name")
+        .ifBlank { "gemini-pro" } // fallback
+
+    val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+        modelName = remoteConfig.getString("model_name")
+    )
     
+    val prompt = """
+        Based on the following maintenance issue, provide in only one short paragraph what type of contractor should be contacted (if any) to fix the problem:
+        
+        Title: $title
+        Category: $category
+        Description: $description
+        
+        Focus on identifying the specific trade or expertise needed (e.g., plumber, electrician, HVAC technician, general contractor, etc.). Be concise and practical.
+    """.trimIndent()
+    
+    val response = model.generateContent(prompt)
+    response.text?.trim().orEmpty()
+} catch (t: Throwable) {
+    Log.e(TAG, "Error generating AI diagnosis", t)
+    "AI diagnosis temporarily unavailable. Category: $category"
+}
+
+class MainActivity : ComponentActivity() {    
     private lateinit var remoteConfig: FirebaseRemoteConfig
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,7 +126,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    HomeApp()
+                    HomeApp(remoteConfig = remoteConfig)
                 }
             }
         }
@@ -103,7 +135,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeApp() {
+fun HomeApp(remoteConfig: FirebaseRemoteConfig) {
     val viewModel: HomeViewModel = viewModel()
     val navController = rememberNavController()
 
@@ -476,6 +508,7 @@ fun HomeApp() {
                 // Only tenants can create tickets
                 if (currentUser?.role == UserRole.TENANT) {
                     val connections by viewModel.connections.collectAsState()
+                    val scope = rememberCoroutineScope()
                     val hasConnectedLandlord = remember(connections, currentUser?.email) {
                         connections.any { 
                             it.tenantEmail.lowercase() == currentUser?.email?.lowercase() && 
@@ -490,25 +523,32 @@ fun HomeApp() {
                             if (hasConnectedLandlord) {
                                 val dateStr = com.example.mvp.utils.DateUtils.getCurrentDateString()
                                 val ticketId = "ticket-${System.currentTimeMillis()}"
-                                val newTicket = Ticket(
-                                    id = ticketId,
-                                    title = title,
-                                    description = description,
-                                    category = category,
-                                    status = TicketStatus.SUBMITTED,
-                                    submittedBy = currentUser?.email ?: "",
-                                    submittedByRole = currentUser?.role ?: UserRole.TENANT,
-                                    aiDiagnosis = "AI Suggestion: $category - Auto-detected",
-                                    createdAt = com.example.mvp.utils.DateUtils.getCurrentDateTimeString(),
-                                    createdDate = dateStr,
-                                    priority = priority,
-                                    ticketNumber = "${System.currentTimeMillis() % 100000}"
-                                )
-                                viewModel.addTicket(newTicket)
-                                // Navigate to the ticket detail page after submission
-                                navController.navigate(Screen.TicketDetail.createRoute(ticketId)) {
-                                    // Pop the create ticket screen from the back stack
-                                    popUpTo(Screen.CreateTicket.route) { inclusive = true }
+                                
+                                // Launch coroutine to generate AI diagnosis
+                                scope.launch {
+                                    val aiDiagnosis = generateAIDiagnosis(title, description, category, remoteConfig)
+                                    
+                                    val newTicket = Ticket(
+                                        id = ticketId,
+                                        title = title,
+                                        description = description,
+                                        category = category,
+                                        status = TicketStatus.SUBMITTED,
+                                        submittedBy = currentUser?.email ?: "",
+                                        submittedByRole = currentUser?.role ?: UserRole.TENANT,
+                                        aiDiagnosis = aiDiagnosis,
+                                        createdAt = com.example.mvp.utils.DateUtils.getCurrentDateTimeString(),
+                                        createdDate = dateStr,
+                                        priority = priority,
+                                        ticketNumber = "${System.currentTimeMillis() % 100000}"
+                                    )
+                                    viewModel.addTicket(newTicket)
+                                    
+                                    // Navigate to the ticket detail page after submission
+                                    navController.navigate(Screen.TicketDetail.createRoute(ticketId)) {
+                                        // Pop the create ticket screen from the back stack
+                                        popUpTo(Screen.CreateTicket.route) { inclusive = true }
+                                    }
                                 }
                             }
                         },
