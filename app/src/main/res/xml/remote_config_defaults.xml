@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?><defaults>
+  <entry>
+    <key>model_name</key>
+    <value>gemini-2.5-flash</value>
+  </entry>
+</defaults>

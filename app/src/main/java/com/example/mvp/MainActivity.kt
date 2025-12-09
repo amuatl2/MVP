@@ -25,6 +25,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import com.example.mvp.data.FirebaseRepository
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
+import com.google.firebase.remoteconfig.ConfigUpdate
+import com.google.firebase.remoteconfig.ConfigUpdateListener
+import com.google.firebase.remoteconfig.FirebaseRemoteConfigException
+import android.util.Log
+import android.provider.Settings.ContentValues
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -43,9 +49,45 @@ import com.example.mvp.ui.theme.MVPTheme
 import com.example.mvp.viewmodel.HomeViewModel
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+    
+    private lateinit var remoteConfig: FirebaseRemoteConfig
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        // Set default values for Remote Config parameters.
+        remoteConfig = FirebaseRemoteConfig.getInstance()
+        remoteConfig.setDefaultsAsync(R.xml.remote_config_defaults)
+        
+        // Fetch and activate Remote Config values
+        remoteConfig.fetchAndActivate()
+            .addOnCompleteListener(this) { task ->
+                if (task.isSuccessful) {
+                    val updated = task.result
+                    Log.d(TAG, "Remote Config values fetched and activated: $updated")
+                } else {
+                    Log.e(TAG, "Error fetching Remote Config", task.exception)
+                }
+            }
+        
+        // Add a real-time Remote Config listener
+        remoteConfig.addOnConfigUpdateListener(object : ConfigUpdateListener {
+            override fun onUpdate(configUpdate : ConfigUpdate) {
+                Log.d(ContentValues.TAG, "Updated keys: " + configUpdate.updatedKeys);
+                remoteConfig.activate().addOnCompleteListener {
+                    // Optionally, add an action to perform on update here.
+                }
+            }
+
+            override fun onError(error : FirebaseRemoteConfigException) {
+                Log.w(ContentValues.TAG, "Config update error with code: " + error.code, error)
+            }
+        })
+        
         setContent {
             MVPTheme {
                 Surface(
